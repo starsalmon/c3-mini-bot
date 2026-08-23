@@ -1,0 +1,32 @@
+---
+description: Default to OTA firmware upload for c3-mini-bot — never USB unless user asks
+alwaysApply: true
+---
+
+# Firmware upload — OTA first
+
+When the user needs to flash c3-mini-bot WiFi firmware, **always give the OTA command**:
+
+```bash
+cd c3-mini-bot
+pio run -e c3_mini_wifi_ota -t upload
+```
+
+- Hostname: `c3-bot1.local` (set `upload_port` + `BOT_OTA_HOSTNAME` in `platformio_private.ini` `[ota]` section)
+- Bot must be on WiFi with OTA-capable firmware already running
+- First-ever flash: one USB `c3_mini_wifi_ota` upload, then OTA only
+
+Do not suggest USB unless user explicitly asks.
+
+## Safety — bot must be stopped
+
+**Never OTA while the bot is moving.** Stop `fleet-brain`, zero `/bot1/cmd_vel`, confirm stationary, or get Cain's OK. See `ota-safety.mdc`.
+
+## Other envs
+
+| Env | Use |
+|-----|-----|
+| `c3_mini_wifi_ota` | **Default** — fleet + OTA |
+| `c3_mini_wifi` | USB only (no OTA in firmware) |
+| `c3_bench` | USB bench test |
+| `c3_autonomous` | USB standalone wander |

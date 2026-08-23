@@ -1,0 +1,25 @@
+---
+description: Multi-bot swarm architecture — fleet server, namespaces, micro-ROS
+alwaysApply: true
+---
+
+# Swarm / fleet goal (long-term)
+
+- **Many bots**, one **Linux Docker host** (dockerhost) as the main controller/brain.
+- Each ESP32 is a **thin client**: motors, sensors, WiFi, micro-ROS. Not a full brain.
+- Bots talk to the **server over WiFi** (micro-ROS → agent → ROS 2). Bot-to-bot coordination happens via **ROS topics on the server**, not ESP-to-ESP mesh (unless explicitly added later).
+
+## Do
+
+- **One micro-ROS agent container** for the whole fleet (same UDP port, multiplexes clients).
+- **Unique `BOT_NAMESPACE` per bot** in firmware (e.g. `bot1`, `bot2`) so topics are `/bot1/cmd_vel`, not shared `/cmd_vel`.
+- Keep **motor ramp + safety timeouts on the ESP**; server sends setpoints, not raw PWM.
+- Use **`ros:jazzy-ros-base`** / **`microros/micro-ros-agent:jazzy`** on dockerhost.
+- Standalone `c3_autonomous` is fine for bench/bring-up; swarm mode uses `c3_mini_wifi`.
+
+## Don't
+
+- Don't name fleet infra after a single bot (`c3-*` for server-side services).
+- Don't run **one Docker container per bot** for the agent — one agent, many namespaces.
+- Don't hardcode global topic names without namespace on WiFi firmware.
+- Don't put closed-loop motor control that needs kHz updates on the server over WiFi.

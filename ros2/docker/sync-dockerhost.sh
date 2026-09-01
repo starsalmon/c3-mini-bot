@@ -28,6 +28,7 @@ scp \
   "$ROS2_DIR/imu_motion_test.py" \
   "$ROVER_ROS2_DIR/rover_brain.py" \
   "$ROVER_ROS2_DIR/explore_controller.py" \
+  "$ROVER_ROS2_DIR/cmd_vel_slew.py" \
   "$ROVER_ROS2_DIR/rover_proximity.py" \
   "$ROVER_ROS2_DIR/hallway_follow.py" \
   "$ROVER_ROS2_DIR/analyze_rover_telem.py" \

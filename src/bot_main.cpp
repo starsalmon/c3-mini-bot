@@ -32,6 +32,7 @@
 #include "pan_servo.h"
 #include "servo_hw.h"
 #include "ultrasonic.h"
+#include "oled_ssd1306.h"
 
 namespace {
 
@@ -47,10 +48,12 @@ BatteryMonitor battery;
 PanServo pan_servo;
 Ultrasonic sonar;
 Mpu6050Imu imu;
+OLEDSSD1306 oled;
 IrBeacon ir;
 IrTx ir_tx;
 BotFrontBar front_bar;
 
+bool oled_ok = false;
 float last_lin = 0.0f;
 float last_ang = 0.0f;
 uint32_t last_cmd_ms = 0;
@@ -536,6 +539,8 @@ void setup() {
     Serial.println("MPU6050 OK");
   }
   imu_features.reset();
+
+  oled_ok = oled.begin();
 
   Serial.printf("micro-ROS ns=/%s node=%s\n", BOT_NAMESPACE, BOT_NODE_NAME);
   // ROS connect runs in loop() so OTA can accept uploads during agent wait.

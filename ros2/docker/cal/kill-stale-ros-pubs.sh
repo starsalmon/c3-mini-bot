@@ -9,7 +9,7 @@ n=0
 for id in $(docker ps --filter ancestor=ros:jazzy-ros-base -q 2>/dev/null); do
   name=$(docker inspect -f '{{.Name}}' "$id" 2>/dev/null | tr -d '/')
   case "$name" in
-    fleet-shell|fleet-brain|fleet-wander|fleet-beacon-chase|microros-agent) continue ;;
+    fleet-shell|fleet-brain|rover-brain|fleet-wander|fleet-beacon-chase|microros-agent) continue ;;
   esac
   docker kill "$id" >/dev/null 2>&1 || true
   n=$((n + 1))

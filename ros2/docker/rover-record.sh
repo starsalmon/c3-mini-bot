@@ -6,9 +6,23 @@ source /opt/ros/jazzy/setup.bash
 OUT="${ROVER_BAG_DIR:-/bags}"
 mkdir -p "$OUT"
 HOURS="${ROVER_BAG_HOURS:-1}"
+RETENTION_DAYS="${ROVER_BAG_RETENTION_DAYS:-3}"
 
-echo "rover-record → $OUT (${HOURS}h chunks)" >&2
+prune_old_bags() {
+  if [ "${RETENTION_DAYS}" -le 0 ] 2>/dev/null; then
+    return 0
+  fi
+  # session_YYYY-MM-DD_HHMMSS — drop folders older than N days.
+  find "$OUT" -maxdepth 1 -mindepth 1 -type d -name 'session_*' -mtime +"${RETENTION_DAYS}" -print 2>/dev/null | while read -r old; do
+    echo "  prune $old (>${RETENTION_DAYS}d)" >&2
+    rm -rf "$old"
+  done
+}
+
+echo "rover-record → $OUT (${HOURS}h chunks, keep ${RETENTION_DAYS}d)" >&2
+prune_old_bags
 while true; do
+  prune_old_bags
   STAMP=$(date -u +%Y-%m-%d_%H%M%S)
   DIR="$OUT/session_${STAMP}"
   echo "  recording $DIR" >&2

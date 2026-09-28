@@ -19,8 +19,8 @@ Always use **BCM / GPIO numbers** in software — not physical header positions.
 | **5** | HC-SR04 TRIG | 3.3 V logic |
 | **6** | HC-SR04 ECHO | **Divider required** if module outputs 5 V |
 | **7** | TSOP4138 IR receive | Single receiver on pan head (`IR_RECV_RIGHT_PIN`) |
-| **8** | I2C SDA | MPU6050 |
-| **9** | I2C SCL | MPU6050 |
+| **8** | I2C SDA | MPU6050 + rear VL53L0X |
+| **9** | I2C SCL | MPU6050 + rear VL53L0X |
 | **10** | Onboard WS2812 | Status LED (do not repurpose) |
 | **20** | IR LED beacon TX | 38 kHz — chase target for rover / other bots |
 | **21** | USB-UART TX | Console — avoid other use |
@@ -36,7 +36,7 @@ Left TSOP channel is disabled in firmware (`IR_RECV_LEFT_PIN = -1`). Set `IR_DUA
 |------|---------|
 | **Servos** | Shared **5 V BEC/UBEC** + GND — **not** from C3 3.3 V |
 | **C3** | USB or 5 V in per Waveshare guide |
-| **MPU6050 / TSOP** | **3.3 V** + GND |
+| **MPU6050 / TSOP / VL53L0X** | **3.3 V** + GND |
 | **HC-SR04** | **5 V** + GND (ECHO divided to 3.3 V) |
 
 Common **GND** between C3, BEC, and sensors.
@@ -47,8 +47,8 @@ Common **GND** between C3, BEC, and sensors.
 
 | Servo | Signal → C3 | Power |
 |-------|-------------|-------|
-| Wheel L (FS90R) | **GPIO0** | 5 V BEC + GND |
-| Wheel R (FS90R) | **GPIO1** | 5 V BEC + GND |
+| Wheel L (FS90R) | **GPIO0** | VBAT + GND |
+| Wheel R (FS90R) | **GPIO1** | VBAT + GND |
 | Pan (FS90) | **GPIO3** | 5 V BEC + GND |
 
 FS90R: **1500 µs = stop** (`SERVO_STOP_US`). One wheel may need invert in firmware (`SERVO_INVERT_RIGHT=1` default).
@@ -70,6 +70,23 @@ Mount on the **pan bracket**; firmware publishes `/bot1/sonar/range` and `/bot1/
 
 ---
 
+## Rear time-of-flight (VL53L0X)
+
+Same I2C bus as the IMU. Leave **XSHUT** floating (addr **0x29**).
+
+| VL53L0X | C3 |
+|---------|-----|
+| VIN / VCC | **3.3 V** |
+| GND | GND |
+| SDA | **GPIO8** |
+| SCL | **GPIO9** |
+
+Topic: `/bot1/tof/rear`. Reverse stops below ~12 cm (firmware + brain).
+
+If the chip is a **VL53L1X** (model id not `0xEE`), it will log and stay unused until we add that driver.
+
+---
+
 ## MPU6050 (I2C)
 
 | MPU6050 | C3 (board labels SDA/SCL) |
@@ -79,7 +96,9 @@ Mount on the **pan bracket**; firmware publishes `/bot1/sonar/range` and `/bot1/
 | VCC | **3.3 V** |
 | GND | GND |
 
-Address **0x68**. Topics: `/bot1/imu`.
+Address **0x68**. Topic: `/bot1/imu`.
+
+PCB layout rotated the chip vs the breadboard. Firmware flips yaw with `IMU_GYRO_Z_SIGN` (`-1`). If heading hold still piles into a turn, set it to `1` in `bot_pins.h`.
 
 ---
 
@@ -107,7 +126,12 @@ For swarm chase — rover beacon is separate hardware; mini can TX when driving 
 
 For more range: GPIO → **1 kΩ** → NPN base; IR LED + resistor from **5 V** → collector; emitter → GND.
 
-38 kHz PWM (`IR_TX_HZ`). Default beacon off at boot (`IR_TX_DEFAULT_ON=0`).
+38 kHz PWM (`IR_TX_HZ`). Beacon on/off is a **PlatformIO flag** in `platformio_private.ini`:
+
+- `-DIR_TX_DEFAULT_ON=1` — on at boot (chase target)
+- `-DIR_TX_FOLLOW_CMD=1` — only while driving
+
+Default in `bot_pins.h` is off (`0`) so rover front IR does not treat the mini as a bumper.
 
 ---
 
@@ -117,7 +141,7 @@ For more range: GPIO → **1 kΩ** → NPN base; IR LED + resistor from **5 V** 
 |------|---------|
 | Cell **+** | R1 (e.g. **27 kΩ**) → **GPIO2** → R2 (e.g. **10 kΩ**) → GND |
 
-Report-only on ROS — no auto shutdown (`BAT_SHUTDOWN_ENABLE=0`). Calibrate `BAT_ADC_SCALE` in `bot_pins.h` against a DMM on the cell.
+Report-only on ROS — no auto shutdown (`BAT_SHUTDOWN_ENABLE=0`). Firmware auto-picks a 1S scale from the tap millivolts (`BAT_ADC_SCALE=0`). DMM-check once on the PCB and set `BAT_ADC_SCALE` in `bot_pins.h` if the reading is a few tenths off.
 
 ---
 

@@ -20,12 +20,19 @@ class DriveServos {
 
  private:
   void apply_current();
+  void apply_stop_hold();
   void set_targets(float left, float right);
-  uint16_t speed_to_us(float speed) const;
+  void ensure_attached();
+  void detach_idle();
+  uint16_t speed_to_us(float speed, bool left) const;
 
   Servo _left;
   Servo _right;
+  int _left_pin = -1;
+  int _right_pin = -1;
   bool _ok = false;
+  bool _detached = false;
+  uint32_t _idle_since_ms = 0;
   uint16_t _last_us_l = 0;
   uint16_t _last_us_r = 0;
   float _trim_left = 1.0f;

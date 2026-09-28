@@ -73,6 +73,26 @@
   history: keep_last
   depth: 10
 
+/rover/tof/front:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/front_left:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/front_right:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/l8_cols:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
 /rover/wheel/left_ticks:
   reliability: best_effort
   history: keep_last
@@ -104,6 +124,11 @@
   depth: 10
 
 /rover/stall:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/battery/voltage:
   reliability: best_effort
   history: keep_last
   depth: 10

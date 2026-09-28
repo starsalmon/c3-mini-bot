@@ -11,3 +11,5 @@ build_flags =
   ; Unique per physical bot — topics: /bot1/cmd_vel, /bot1/sonar/range, …
   -DBOT_NAMESPACE=\"bot1\"
   -DBOT_NODE_NAME=\"mini_bot\"
+  ; IR beacon on GPIO20: -DIR_TX_DEFAULT_ON=1  (always)
+  ; or -DIR_TX_FOLLOW_CMD=1  (only while /cmd_vel is active)

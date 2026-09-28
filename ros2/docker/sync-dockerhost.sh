@@ -27,10 +27,12 @@ scp \
   "$ROS2_DIR/beacon_chase.py" \
   "$ROS2_DIR/explore_then_chase.py" \
   "$ROS2_DIR/fleet_steering.py" \
+  "$ROS2_DIR/fleet_meet_spin.py" \
   "$ROS2_DIR/fleet_ha_bridge.py" \
   "$ROS2_DIR/analyze_drive_log.py" \
   "$ROS2_DIR/imu_motion_test.py" \
   "$ROVER_ROS2_DIR/rover_brain.py" \
+  "$ROVER_ROS2_DIR/fleet_meet_spin.py" \
   "$ROVER_ROS2_DIR/rover_motion.py" \
   "$ROVER_ROS2_DIR/rover_wheel_odom.py" \
   "$ROVER_ROS2_DIR/rover_wheel_cal.py" \

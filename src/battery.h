@@ -9,6 +9,7 @@ class BatteryMonitor {
   // Returns true when it's time to deep-sleep (caller invokes bot_halt_low_battery).
   bool service(uint32_t now_ms);
   float voltage() const { return _volts; }
+  float scale() const { return _scale; }
   uint16_t pin_millivolts() const { return _pin_mv; }
   // False when divider reads below BAT_VOLT_MIN_VALID (USB dev / pack unplugged).
   bool valid() const { return _valid; }

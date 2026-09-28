@@ -1,0 +1,33 @@
+type: custom:bubble-card
+card_type: pop-up
+hash: '#robots'
+name: Robots
+icon: mdi:robot
+button_type: name
+button_action: {}
+show_header: true
+cards:
+  - type: entities
+    entities:
+      - entity: button.lab_robots_stop_all_robots
+      - entity: switch.lab_robots_allow_drive
+  - type: entities
+    title: Rover
+    entities:
+      - entity: binary_sensor.lab_robot_rover_online
+      - entity: sensor.lab_robot_rover_battery
+      - entity: sensor.lab_robot_rover_battery_voltage
+      - entity: binary_sensor.lab_robot_rover_session
+      - entity: sensor.lab_robot_rover_drive_mode
+  - type: entities
+    title: Roby
+    entities:
+      - entity: binary_sensor.lab_robot_roby_online
+      - entity: sensor.lab_robot_roby_battery
+      - entity: sensor.lab_robot_roby_battery_voltage
+  - type: entities
+    title: Tracked
+    entities:
+      - entity: binary_sensor.lab_robot_tracked_online
+      - entity: sensor.lab_robot_tracked_battery
+      - entity: sensor.lab_robot_tracked_battery_voltage

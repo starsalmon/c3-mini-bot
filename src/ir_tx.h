@@ -10,6 +10,7 @@ class IrTx {
   void set_enabled(bool on);
   void tick();
   bool enabled() const { return _armed; }
+  bool in_tx_frame() const;
 
  private:
   void apply_carrier(bool on);

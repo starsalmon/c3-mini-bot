@@ -22,6 +22,17 @@
 #define STATUS_LED_PIN 10
 #endif
 
+// Passive piezo (GPIO4 is a C6/C3 strap — idle until speaker.begin()).
+#ifndef SPEAKER_PIN
+#define SPEAKER_PIN 4
+#endif
+#ifndef SPEAKER_LEDC_CH
+#define SPEAKER_LEDC_CH 3  // C3 has LEDC ch 0-5 only; servos 0-2, IR TX ch 5
+#endif
+#ifndef SPEAKER_ENABLED
+#define SPEAKER_ENABLED 1
+#endif
+
 // Front NeoPixel bar (8 pixels) — user add-on.
 // Default: GPIO19 (free on C3 Zero; avoid 4, 8/9 I2C, 10 onboard pixel, 20/21 UART).
 #ifndef FRONT_BAR_PIN
@@ -35,16 +46,23 @@
 #define FRONT_BAR_BRIGHTNESS 28
 #endif
 
-// Front bar NeoPixel color order.
-// Many strips are GRB; some are RGB (rainbow looks "off" if mismatched).
-// Try switching to NEO_RGB if reds/greens look swapped.
+// Front bar NeoPixel color order. WS2812 bars are usually GRB (Adafruit default).
 #ifndef FRONT_BAR_PIXEL_ORDER
-#define FRONT_BAR_PIXEL_ORDER NEO_RGB
+#define FRONT_BAR_PIXEL_ORDER NEO_GRB
 #endif
 
-// FS90R continuous rotation: 1500 µs = stop
+// FS90R continuous rotation — per-wheel stop pulse (bench-tuned; 1500 often buzzes).
+#ifndef SERVO_STOP_US_LEFT
+#define SERVO_STOP_US_LEFT 1492
+#endif
+#ifndef SERVO_STOP_US_RIGHT
+#define SERVO_STOP_US_RIGHT 1508
+#endif
 #ifndef SERVO_STOP_US
-#define SERVO_STOP_US 1500
+#define SERVO_STOP_US ((SERVO_STOP_US_LEFT + SERVO_STOP_US_RIGHT) / 2)
+#endif
+#ifndef SERVO_IDLE_DETACH_MS
+#define SERVO_IDLE_DETACH_MS 200  // detach PWM when stopped — silent idle
 #endif
 #ifndef SERVO_MIN_US
 #define SERVO_MIN_US 1100
@@ -96,6 +114,19 @@
 #ifndef MPU6050_ADDR
 #define MPU6050_ADDR 0x68
 #endif
+// PCB IMU is rotated vs the breadboard. Heading hold piled into commanded turns
+// (right became a harder right) until yaw gyro is flipped here.
+#ifndef IMU_GYRO_Z_SIGN
+#define IMU_GYRO_Z_SIGN (-1.0f)
+#endif
+
+// Rear VL53L0X on the same I2C bus as the MPU (addr 0x29). XSHUT left floating.
+#ifndef TOF_I2C_ADDR
+#define TOF_I2C_ADDR 0x29
+#endif
+#ifndef TOF_REAR_STOP_M
+#define TOF_REAR_STOP_M 0.12f
+#endif
 
 // TSOP4138 — LOW = 38 kHz IR seen. Use -1 to disable a channel.
 #ifndef IR_RECV_LEFT_PIN
@@ -104,15 +135,9 @@
 #ifndef IR_RECV_RIGHT_PIN
 #define IR_RECV_RIGHT_PIN 7
 #endif
-// Single TSOP on the pan head: sweep servo when stopped, hold bearing when seen.
+// Sonar glance while driving + hold pan on IR hit. No idle pan sweep.
 #ifndef IR_PAN_SCAN
 #define IR_PAN_SCAN 1
-#endif
-#ifndef IR_PAN_SWEEP_MS
-#define IR_PAN_SWEEP_MS 120
-#endif
-#ifndef IR_PAN_SWEEP_DEG
-#define IR_PAN_SWEEP_DEG 2.5f
 #endif
 
 // Wheel ramp per drive.tick() at 50 Hz — smooth accel/decel (tune on bench, not via ROS).
@@ -163,7 +188,7 @@
 #define IR_TX_HZ 38000
 #endif
 #ifndef IR_TX_DEFAULT_ON
-#define IR_TX_DEFAULT_ON 0
+#define IR_TX_DEFAULT_ON 1
 #endif
 // When 1, IR LED turns on while /cmd_vel is active (no extra ROS subscription).
 // Keep 0 for swarm — rover front IR mistakes 38 kHz for an obstacle.
@@ -186,9 +211,8 @@
 #define PIN_BAT_ADC 2
 #endif
 #ifndef BAT_ADC_SCALE
-// USB bench cal 2026-08-11: DMM cell 4.00 V, tap 1.06 V, GPIO2 ~476 mV → 4.00/0.476 ≈ 8.40
-// C3 ADC drifts a few % on USB power — re-check on battery/WiFi before trusting low-voltage cutoff.
-#define BAT_ADC_SCALE 8.40f
+// 0 = pick a 1S scale from the tap millivolts (breadboard ~0.5 V vs PCB ~1.5–2 V).
+#define BAT_ADC_SCALE 0.0f
 #endif
 #ifndef BAT_VOLT_MIN_VALID
 #define BAT_VOLT_MIN_VALID 1.5f

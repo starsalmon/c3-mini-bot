@@ -4,8 +4,9 @@ Fleet IDs (for humans/scripts — ROS namespaces differ):
 
 | Fleet ID | Robot | Nickname | ROS namespace |
 |----------|-------|----------|---------------|
-| **bot0** | LEGO rover | — | `/rover/…` (Pi + ESP) |
+| **bot0** | LEGO rover | Rover | `/rover/…` |
 | **bot1** | c3-mini | Roby | `/bot1/…` |
+| **bot2** | tracked-bot | Tracked | `/bot2/…` |
 
 One **micro-ROS agent** on dockerhost bridges ESP32 minis into the same ROS 2 DDS graph (`bot1`, `bot2`, …). The LEGO rover runs its own stack on the Pi.
 
@@ -18,6 +19,10 @@ One **micro-ROS agent** on dockerhost bridges ESP32 minis into the same ROS 2 DD
   - `/bot1/imu`
   - `/bot1/ir/detected`
   - `/bot1/battery/voltage`
+
+## tracked-bot (bot2, NodeMCU-32S)
+
+Thin client like the mini: dockerhost `tracked-brain` publishes `/bot2/cmd_vel`. Firmware: `tracked_wifi_ota`, `BOT_NAMESPACE=bot2`. DRV8833 tracks + OTA (`tracked-bot.local`). No Go button — wander starts when the bot is on ROS. ToF (when fitted) publishes `/bot2/sonar/range`.
 
 ## LEGO rover (bot0, Pi onboard)
 

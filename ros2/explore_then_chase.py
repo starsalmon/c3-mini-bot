@@ -11,8 +11,9 @@ import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, Range
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, UInt8
 
+from fleet_meet_spin import MeetSpinController
 from fleet_steering import IrSteerConfig, WanderConfig, WanderState, steer_ir_beacon
 
 
@@ -21,12 +22,18 @@ class ExploreThenChase(Node):
 
     def __init__(self) -> None:
         ns = os.environ.get('BOT_NS', 'bot1').strip('/')
+        fleet_ids = {'rover': 0, 'bot0': 0, 'bot1': 1, 'bot2': 2}
+        fleet_id = int(os.environ.get('FLEET_IR_ID', fleet_ids.get(ns, 1)))
         pan_center = float(os.environ.get('PAN_CENTER', '90'))
         super().__init__('explore_then_chase')
+        self._meet = MeetSpinController(fleet_id=fleet_id)
+        self._meet_was_active = False
         self.pub = self.create_publisher(Twist, f'/{ns}/cmd_vel', 10)
         self.create_subscription(Range, f'/{ns}/sonar/range', self._on_range, 10)
+        self.create_subscription(Range, f'/{ns}/tof/rear', self._on_rear_tof, 10)
         self.create_subscription(Imu, f'/{ns}/imu', self._on_imu, 10)
         self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_ir, 10)
+        self.create_subscription(UInt8, f'/{ns}/ir/peer', self._on_ir_peer, 10)
         self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
         self.IR_ON_TICKS = int(os.environ.get('CHASE_IR_ON_TICKS', '24'))
         self.IR_OFF_TICKS = int(os.environ.get('CHASE_IR_OFF_TICKS', '15'))
@@ -59,18 +66,38 @@ class ExploreThenChase(Node):
         self._csv_ready = False
         self._last_gz = 0.0
         self._imu_seen = False
+        self._require_imu = os.environ.get('REQUIRE_IMU', '1').strip().lower() not in (
+            '0',
+            'false',
+            'no',
+            'off',
+        )
+        self._allow_drive = True
+        self.create_subscription(Bool, '/fleet/allow_drive', self._on_allow_drive, 10)
+        if not self._require_imu:
+            self._wander._heading.force_ready()
         self._cal_log_at = 0.0
         self._cal_done_logged = False
         self.create_timer(self.TICK, self._tick)
-        self.get_logger().info(f'explore_then_chase: /{ns} forward wander → chase on IR')
+        self.get_logger().info(
+            f'explore_then_chase: /{ns} forward wander → chase on IR'
+            + ('' if self._require_imu else ' (no IMU gate)')
+        )
 
     def _on_range(self, msg: Range) -> None:
         self._wander.update_range(float(msg.range), self._pan_deg)
 
+    def _on_rear_tof(self, msg: Range) -> None:
+        self._wander.update_rear(float(msg.range))
+
     def _on_imu(self, msg: Imu) -> None:
         self._imu_seen = True
         self._last_gz = float(msg.angular_velocity.z)
+        self._meet.on_imu_gz(self._last_gz, self.TICK)
         self._wander.update_imu(self._last_gz)
+
+    def _on_ir_peer(self, msg: UInt8) -> None:
+        self._meet.on_peer(int(msg.data))
 
     def _on_ir(self, msg: Bool) -> None:
         detected = bool(msg.data)
@@ -102,13 +129,37 @@ class ExploreThenChase(Node):
         self._pan_deg = float(msg.data)
         self._wander._pan_deg = self._pan_deg
 
+    def _on_allow_drive(self, msg: Bool) -> None:
+        allow = bool(msg.data)
+        if allow == self._allow_drive:
+            return
+        self._allow_drive = allow
+        self.get_logger().info(f'allow_drive={allow}')
+
     def _tick(self) -> None:
+        if not self._allow_drive:
+            self.pub.publish(Twist())
+            return
+        meet_cmd = self._meet.tick()
+        if meet_cmd is not None:
+            if not self._meet_was_active:
+                self.get_logger().info(
+                    f'meet dance — saw {self._meet.peer_label()}, spinning 2×360°'
+                )
+            self._meet_was_active = True
+            msg = Twist()
+            msg.linear.x, msg.angular.z = meet_cmd
+            self.pub.publish(msg)
+            return
+        if self._meet_was_active:
+            self._meet_was_active = False
+            self.get_logger().info('meet dance done')
         now = time.monotonic()
-        if not self._imu_seen:
+        if self._require_imu and not self._imu_seen:
             self.pub.publish(Twist())
             return
 
-        if not self._wander.imu_ready():
+        if self._require_imu and not self._wander.imu_ready():
             if now >= self._cal_log_at:
                 self._cal_log_at = now + 1.0
                 pct = int(self._wander.imu_cal_progress() * 100.0)
@@ -121,7 +172,7 @@ class ExploreThenChase(Node):
 
         if not self._cal_done_logged:
             self._cal_done_logged = True
-            self.get_logger().info('IMU ready — exploring')
+            self.get_logger().info('exploring')
 
         chasing = self._ir and time.monotonic() >= self._chase_cooldown_until
         if chasing and self._chase_started_at is None:

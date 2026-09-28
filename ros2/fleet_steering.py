@@ -63,6 +63,7 @@ class WanderConfig:
     curiosity_enable: bool = True
     imu_cal_s: float = 2.5
     imu_cal_min_samples: int = 50
+    rear_stop_m: float = 0.12
 
     @classmethod
     def from_env(cls, *, pan_center: float = 90.0) -> WanderConfig:
@@ -109,6 +110,7 @@ class WanderConfig:
             curiosity_enable=_env_bool('WANDER_CURIOSITY', True),
             imu_cal_s=float(os.environ.get('IMU_CAL_SEC', '2.5')),
             imu_cal_min_samples=int(os.environ.get('IMU_CAL_MIN_SAMPLES', '50')),
+            rear_stop_m=float(os.environ.get('WANDER_REAR_STOP_M', '0.12')),
         )
 
 
@@ -187,6 +189,13 @@ class HeadingHold:
 
     def fresh(self) -> bool:
         return (time.monotonic() - self._last_imu_s) < 0.5
+
+    def force_ready(self) -> None:
+        """Tracked-bot etc. with no gyro — wander without waiting for /imu."""
+        self._ready = True
+        if self._cal_start_s <= 0.0:
+            self._cal_start_s = time.monotonic()
+        self.reset_target()
 
     def reset_target(self) -> None:
         self._target_deg = self._yaw_deg
@@ -270,6 +279,7 @@ class WanderState:
     curiosity_enable: bool = True
     imu_cal_s: float = 2.5
     imu_cal_min_samples: int = 50
+    rear_stop_m: float = 0.12
     _range_m: float = field(default_factory=lambda: float('nan'))
     _last_good_m: float = field(default_factory=lambda: float('nan'))
     _recent_close_m: float = field(default_factory=lambda: float('nan'))
@@ -309,6 +319,8 @@ class WanderState:
     _commit_until: float = 0.0
     _close_persist_since: float = 0.0
     _avoid_start_range: float = field(default_factory=lambda: float('nan'))
+    _rear_m: float = field(default_factory=lambda: float('nan'))
+    _rear_ms: float = 0.0
 
     @classmethod
     def from_config(cls, cfg: WanderConfig) -> WanderState:
@@ -357,6 +369,7 @@ class WanderState:
             curiosity_enable=cfg.curiosity_enable,
             imu_cal_s=cfg.imu_cal_s,
             imu_cal_min_samples=cfg.imu_cal_min_samples,
+            rear_stop_m=cfg.rear_stop_m,
         )
 
     def __post_init__(self) -> None:
@@ -491,6 +504,26 @@ class WanderState:
         if pan_deg > self.pan_center + 5.0:
             return 'right'
         return 'center'
+
+    def update_rear(self, range_m: float) -> None:
+        if math.isnan(range_m) or range_m <= 0.0:
+            self._rear_m = float('nan')
+            return
+        self._rear_m = range_m
+        self._rear_ms = time.monotonic()
+
+    def _rear_blocked(self) -> bool:
+        if math.isnan(self._rear_m):
+            return False
+        if (time.monotonic() - self._rear_ms) > 0.45:
+            return False
+        return self._rear_m < self.rear_stop_m
+
+    def _begin_avoid_turn(self, now: float) -> None:
+        self._avoid_phase = 'turn'
+        self._avoid_heading0 = self._heading.yaw_deg
+        self._avoid_turn_start = now
+        self._turn_target_deg = self._pick_avoid_turn_deg()
 
     def update_range(self, range_m: float, pan_deg: float | None = None) -> None:
         if pan_deg is not None:
@@ -686,6 +719,9 @@ class WanderState:
         err = self._pan_best_deg - self.pan_center
         if abs(err) > 10.0:
             return -1.0 if err > 0.0 else 1.0
+        # Trap: try the other way on the next escape so we don't grind 270° right.
+        if self._trap_level > 0 and len(self._avoid_recent) >= 2:
+            return -self._committed_escape_sign
         if self._trap_level > 0:
             return self._committed_escape_sign
         self._turn_sign *= -1.0
@@ -713,9 +749,15 @@ class WanderState:
             msg.angular.z = 0.0
             return True
 
+        delta = _wrap_deg(yaw - heading0)
         if elapsed >= 0.35 and self._heading.fresh():
-            turned = (yaw - heading0) * sign
-            if turned >= target_deg - self.turn_tolerance_deg:
+            progress = delta * sign
+            # Shortest arc only — unwrapped yaw used to keep going to 270° the long way.
+            if progress >= target_deg - self.turn_tolerance_deg:
+                msg.linear.x = 0.0
+                msg.angular.z = 0.0
+                return True
+            if abs(delta) >= 120.0:
                 msg.linear.x = 0.0
                 msg.angular.z = 0.0
                 return True
@@ -778,23 +820,22 @@ class WanderState:
             return
 
         if self._avoid_phase == 'reverse':
+            if self._rear_blocked():
+                msg.linear.x = 0.0
+                msg.angular.z = 0.0
+                self._begin_avoid_turn(now)
+                return
             msg.linear.x = self._cap_escape_lin(self.avoid_reverse_lin)
             msg.angular.z = self._avoid_sign * 0.05
             if now >= self._avoid_backup_until:
-                self._avoid_phase = 'turn'
-                self._avoid_heading0 = self._heading.yaw_deg
-                self._avoid_turn_start = now
-                self._turn_target_deg = self._pick_avoid_turn_deg()
+                self._begin_avoid_turn(now)
             return
 
         if self._avoid_phase == 'backup':
             msg.linear.x = 0.0
             msg.angular.z = 0.0
             if now >= self._avoid_backup_until:
-                self._avoid_phase = 'turn'
-                self._avoid_heading0 = self._heading.yaw_deg
-                self._avoid_turn_start = now
-                self._turn_target_deg = self._pick_avoid_turn_deg()
+                self._begin_avoid_turn(now)
             return
 
         if self._avoid_phase == 'turn':

@@ -4,6 +4,7 @@
 .vscode/launch.json
 .vscode/ipch
 platformio_private.ini
+ros2/docker/mqtt_secrets.env
 
 # Generated / local-only
 __pycache__/

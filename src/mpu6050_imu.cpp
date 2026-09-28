@@ -2,6 +2,8 @@
 
 #include <Wire.h>
 
+#include "bot_pins.h"
+
 namespace {
 
 constexpr uint8_t kRegWhoAmI = 0x75;
@@ -99,6 +101,6 @@ bool Mpu6050Imu::read(ImuSample& out) {
   out.az = (static_cast<float>(az) / kAccelLsbPerG) * 9.80665f;
   out.gx = static_cast<float>(gx) / kGyroLsbPerDps * kDegToRad;
   out.gy = static_cast<float>(gy) / kGyroLsbPerDps * kDegToRad;
-  out.gz = static_cast<float>(gz) / kGyroLsbPerDps * kDegToRad;
+  out.gz = static_cast<float>(gz) / kGyroLsbPerDps * kDegToRad * IMU_GYRO_Z_SIGN;
   return true;
 }

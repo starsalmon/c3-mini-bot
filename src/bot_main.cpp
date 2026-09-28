@@ -13,6 +13,7 @@
 #include <sensor_msgs/msg/range.h>
 #include <std_msgs/msg/bool.h>
 #include <std_msgs/msg/float32.h>
+#include <std_msgs/msg/u_int8.h>
 
 #include "battery.h"
 #include "bot_ota.h"
@@ -24,7 +25,11 @@
 #include "bot_pins.h"
 #include "bot_front_bar.h"
 #include "bot_status_led.h"
+#include "bot_tof.h"
 #include "drive_servos.h"
+#include "fleet_ir_proto.h"
+#include "fleet_ir_ping.h"
+#include "fleet_ir_rx.h"
 #include "ir_beacon.h"
 #include "ir_tx.h"
 #include "bot_imu_features.h"
@@ -33,6 +38,7 @@
 #include "servo_hw.h"
 #include "ultrasonic.h"
 #include "oled_ssd1306.h"
+#include "bot_speaker.h"
 
 namespace {
 
@@ -48,10 +54,14 @@ BatteryMonitor battery;
 PanServo pan_servo;
 Ultrasonic sonar;
 Mpu6050Imu imu;
+BotTof rear_tof;
 OLEDSSD1306 oled;
 IrBeacon ir;
 IrTx ir_tx;
+FleetIrRx fleet_peer_rx;
+FleetIrPing fleet_ir_ping;
 BotFrontBar front_bar;
+BotSpeaker speaker;
 
 bool oled_ok = false;
 float last_lin = 0.0f;
@@ -63,6 +73,7 @@ float pan_deg = PAN_CENTER_DEG;
 bool imu_ok = false;
 bool sonar_ok = false;
 float last_sonar_m = NAN;
+float last_tof_m = NAN;
 bool last_ir_detected = false;
 bool stall_active = false;
 bool stall_last_pub = false;
@@ -74,15 +85,19 @@ rcl_publisher_t range_pub;
 rcl_publisher_t pan_pub;
 rcl_publisher_t imu_pub;
 rcl_publisher_t ir_detected_pub;
+rcl_publisher_t ir_peer_pub;
 rcl_publisher_t battery_pub;
 rcl_publisher_t stall_pub;
+rcl_publisher_t tof_pub;
 rcl_subscription_t cmd_sub;
 sensor_msgs__msg__Range range_msg;
 std_msgs__msg__Float32 pan_msg;
 sensor_msgs__msg__Imu imu_msg;
 std_msgs__msg__Bool ir_detected_msg;
+std_msgs__msg__UInt8 ir_peer_msg;
 std_msgs__msg__Float32 battery_msg;
 std_msgs__msg__Bool stall_msg;
+sensor_msgs__msg__Range tof_msg;
 geometry_msgs__msg__Twist cmd_msg;
 
 rcl_allocator_t allocator;
@@ -108,7 +123,11 @@ void apply_drive() {
     drive.stop();
     return;
   }
-  drive.set_twist(last_lin, last_ang);
+  float lin = last_lin;
+  if (lin < -0.02f && rear_tof.ok() && last_tof_m > 0.0f && last_tof_m < TOF_REAR_STOP_M) {
+    lin = 0.0f;
+  }
+  drive.set_twist(lin, last_ang);
 }
 
 void on_cmd(const void *msgin) {
@@ -225,6 +244,13 @@ bool create_entities() {
     return false;
   }
   rc = rclc_publisher_init_default(
+      &ir_peer_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8), "ir/peer");
+  if (rc != RCL_RET_OK) {
+    ROS_LOG_FAIL("pub ir/peer", rc);
+    destroy_entities();
+    return false;
+  }
+  rc = rclc_publisher_init_default(
       &battery_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "battery/voltage");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub battery/voltage", rc);
@@ -235,6 +261,13 @@ bool create_entities() {
       &stall_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "stall");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub stall", rc);
+    destroy_entities();
+    return false;
+  }
+  rc = rclc_publisher_init_default(
+      &tof_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Range), "tof/rear");
+  if (rc != RCL_RET_OK) {
+    ROS_LOG_FAIL("pub tof/rear", rc);
     destroy_entities();
     return false;
   }
@@ -271,6 +304,14 @@ bool create_entities() {
   range_msg.max_range = 4.0f;
   pan_msg.data = pan_deg;
 
+  tof_msg.radiation_type = sensor_msgs__msg__Range__INFRARED;
+  tof_msg.field_of_view = 0.44f;
+  tof_msg.min_range = 0.03f;
+  tof_msg.max_range = 2.0f;
+  static char tof_frame[] = "tof_rear";
+  tof_msg.header.frame_id.data = tof_frame;
+  tof_msg.header.frame_id.size = sizeof(tof_frame) - 1;
+
   imu_msg.orientation_covariance[0] = -1.0;
   imu_msg.angular_velocity_covariance[0] = 0.02f;
   imu_msg.linear_acceleration_covariance[0] = 0.04f;
@@ -290,8 +331,10 @@ void destroy_entities() {
     rcl_subscription_fini(&cmd_sub, &node);
   }
   if (ros_init_level >= 3) {
+    rcl_publisher_fini(&tof_pub, &node);
     rcl_publisher_fini(&stall_pub, &node);
     rcl_publisher_fini(&battery_pub, &node);
+    rcl_publisher_fini(&ir_peer_pub, &node);
     rcl_publisher_fini(&ir_detected_pub, &node);
     rcl_publisher_fini(&imu_pub, &node);
     rcl_publisher_fini(&pan_pub, &node);
@@ -349,7 +392,6 @@ static float random_glance_offset_deg() {
 }
 
 void tick_pan_scan(uint32_t now) {
-  static int sweep_dir = 1;
   static uint32_t last_step_ms = 0;
   static uint32_t hold_until_ms = 0;
   // Driving sonar glance: 0=wait at center, 1=move to side, 2=hold, 3=return
@@ -440,20 +482,8 @@ void tick_pan_scan(uint32_t now) {
     return;
   }
 
-  // Stopped: sweep for IR beacon.
-  if (now - last_step_ms < IR_PAN_SWEEP_MS) {
-    return;
-  }
-  last_step_ms = now;
-
-  pan_deg += static_cast<float>(sweep_dir) * IR_PAN_SWEEP_DEG;
-  if (pan_deg >= static_cast<float>(PAN_MAX_DEG)) {
-    pan_deg = static_cast<float>(PAN_MAX_DEG);
-    sweep_dir = -1;
-  } else if (pan_deg <= static_cast<float>(PAN_MIN_DEG)) {
-    pan_deg = static_cast<float>(PAN_MIN_DEG);
-    sweep_dir = 1;
-  }
+  // Stopped: hold forward — no idle pan sweep.
+  pan_deg = static_cast<float>(PAN_CENTER_DEG);
   pan_servo.set_deg(pan_deg);
 }
 #endif
@@ -481,6 +511,12 @@ void setup() {
 #else
   Serial.printf("Battery monitor GPIO%d (report only, shutdown off)\n", PIN_BAT_ADC);
 #endif
+  if (battery.valid()) {
+    Serial.printf("Battery %.2f V (tap %u mV × %.2f)\n", battery.voltage(),
+                  (unsigned)battery.pin_millivolts(), battery.scale());
+  } else {
+    Serial.printf("Battery not valid yet (tap %u mV)\n", (unsigned)battery.pin_millivolts());
+  }
 
 #if defined(MICRO_ROS_WIFI)
 #ifndef WIFI_SSID
@@ -536,11 +572,28 @@ void setup() {
   if (!imu_ok) {
     Serial.println("WARN: MPU6050 not found on I2C");
   } else {
-    Serial.println("MPU6050 OK");
+    Serial.printf("MPU6050 OK (gyro Z sign %.0f)\n", (double)IMU_GYRO_Z_SIGN);
+  }
+  if (!rear_tof.begin()) {
+    Serial.println("WARN: rear ToF not found");
   }
   imu_features.reset();
 
   oled_ok = oled.begin();
+
+#if SPEAKER_ENABLED
+  if (speaker.begin(SPEAKER_PIN, SPEAKER_LEDC_CH)) {
+    speaker.play(BotSpeaker::kMelodyStartup);
+    Serial.printf("Speaker GPIO %d ch %d\n", SPEAKER_PIN, SPEAKER_LEDC_CH);
+    const uint32_t tune_end = millis() + 280;
+    while (millis() < tune_end) {
+      speaker.tick(millis());
+      delay(1);
+    }
+  } else {
+    Serial.printf("WARN: speaker PWM failed GPIO %d ch %d\n", SPEAKER_PIN, SPEAKER_LEDC_CH);
+  }
+#endif
 
   Serial.printf("micro-ROS ns=/%s node=%s\n", BOT_NAMESPACE, BOT_NODE_NAME);
   // ROS connect runs in loop() so OTA can accept uploads during agent wait.
@@ -553,6 +606,10 @@ void loop() {
   static uint32_t last_ir = 0;
   static uint32_t last_bat = 0;
   const uint32_t now = millis();
+
+#if SPEAKER_ENABLED
+  speaker.tick(now);
+#endif
 
   if (battery.service(now)) {
     bot_halt_low_battery(battery);
@@ -581,6 +638,9 @@ void loop() {
 
   rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
+  rear_tof.poll();
+  last_tof_m = rear_tof.range_m();
+
   if (now - last_ping > 1000) {
     last_ping = now;
     if (rmw_uros_ping_agent(100, 1) != RMW_RET_OK) {
@@ -596,7 +656,11 @@ void loop() {
   apply_drive();
   drive.tick();
   sync_ir_tx();
-  ir_tx.tick();
+  fleet_ir_service([&]() { ir_tx.tick(); }, [&]() {
+    if (!ir_tx.in_tx_frame()) {
+      fleet_peer_rx.poll(ir.read_right());
+    }
+  });
 
 #if IR_PAN_SCAN
   tick_pan_scan(now);
@@ -617,6 +681,12 @@ void loop() {
     }
     pan_msg.data = pan_deg;
     rcl_publish(&pan_pub, &pan_msg, nullptr);
+    if (rear_tof.ok()) {
+      tof_msg.range = (last_tof_m < 0.0f) ? std::numeric_limits<float>::quiet_NaN() : last_tof_m;
+      tof_msg.header.stamp.sec = static_cast<int32_t>(now / 1000);
+      tof_msg.header.stamp.nanosec = static_cast<uint32_t>((now % 1000) * 1000000UL);
+      rcl_publish(&tof_pub, &tof_msg, nullptr);
+    }
   }
 
   if (imu_ok && now - last_imu >= IMU_PERIOD_MS) {
@@ -651,15 +721,27 @@ void loop() {
 
   if (now - last_ir >= IR_PERIOD_MS) {
     last_ir = now;
-    ir_detected_msg.data = ir.read_any();
+    const bool peer_seen = fleet_peer_rx.detected();
+    const uint8_t peer_id = peer_seen ? fleet_peer_rx.peer_id() : FLEET_IR_PEER_NONE;
+    ir_detected_msg.data = ir.read_any() || peer_seen;
+    ir_peer_msg.data = peer_id;
     last_ir_detected = bool(ir_detected_msg.data);
     rcl_publish(&ir_detected_pub, &ir_detected_msg, nullptr);
+    rcl_publish(&ir_peer_pub, &ir_peer_msg, nullptr);
+
+#if SPEAKER_ENABLED
+    if (fleet_ir_ping.should_ping(peer_seen, peer_id, FLEET_IR_ID, now)) {
+      speaker.play(BotSpeaker::kMelodyFleetPing);
+    }
+#endif
   }
 
   if (now - last_bat >= BAT_PERIOD_MS) {
     last_bat = now;
-    battery_msg.data = battery.voltage();
-    rcl_publish(&battery_pub, &battery_msg, nullptr);
+    if (battery.valid()) {
+      battery_msg.data = battery.voltage();
+      rcl_publish(&battery_pub, &battery_msg, nullptr);
+    }
   }
 
   sync_status_led();

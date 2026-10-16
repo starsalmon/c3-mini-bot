@@ -12,7 +12,7 @@ Cain runs a **multi-project hardware lab** (ESP32 robots, radios, displays, toys
 - **Owner/integrator**, not a traditional software dev — explain plainly, no jargon walls.
 - **One chat, many projects** — context-switch by mood/task; confirm which repo if unclear.
 - **Physical world matters** — pins, wiring, and bench-tested motor values beat theory.
-- **Do the work** — run builds, flashes, server commands yourself when you have access. Don't hand Cain a homework list.
+- **Do the work** — run builds, flashes, server commands yourself when you have access. Don't hand Cain a homework list, Cain prefers to pick up a soldering iron instead of running commands that you have access to run.
 
 ## Before changing things
 

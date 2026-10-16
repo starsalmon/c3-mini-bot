@@ -88,7 +88,7 @@ services:
       - ROVER_SONAR=1
       - ROVER_CRUISE_RADAR=0
       # Slightly slower default gives the brain time to steer away before ESP braking.
-      - ROVER_AUTO_MAX_LINEAR=${ROVER_AUTO_MAX_LINEAR:-0.14}
+      - ROVER_AUTO_MAX_LINEAR=${ROVER_AUTO_MAX_LINEAR:-0.16}
       # 0.10 was too low to steer away early; keep smoothness on ESP ramp,
       # but allow the brain enough authority to curve away before brake range.
       - ROVER_AUTO_MAX_ANGULAR=${ROVER_AUTO_MAX_ANGULAR:-0.18}

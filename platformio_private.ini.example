@@ -6,7 +6,7 @@ build_flags =
   -DWIFI_SSID=\"YourSSID\"
   -DWIFI_PSK=\"YourPassword\"
   ; dockerhost LAN IP (shared fleet agent, NOT per-bot)
-  -DAGENT_IP=\"192.168.1.100\"
+  -DAGENT_IP=\"192.168.3.172\"
   -DAGENT_PORT=8888
   ; Unique per physical bot — topics: /bot1/cmd_vel, /bot1/sonar/range, …
   -DBOT_NAMESPACE=\"bot1\"

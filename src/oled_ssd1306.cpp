@@ -1,13 +1,8 @@
 #include "oled_ssd1306.h"
+#include "bot_pins.h"
 
 #define SCREEN_WIDTH    128
 #define SCREEN_HEIGHT   64
-#define OLED_RESET      -1
-#define SCREEN_ADDRESS  0x3C
-
-#ifndef OLED_ENABLED
-#define OLED_ENABLED 0
-#endif
 
 
 // -------------------------------------------------------------------------
@@ -42,7 +37,7 @@ const unsigned char cat_with_wry_smile_1f63c_32[] PROGMEM =
 
 
 OLEDSSD1306::OLEDSSD1306()
-    : _display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET),
+    : _display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET_PIN),
       _ok(false)
 {
 }
@@ -52,7 +47,7 @@ bool OLEDSSD1306::begin()
 {
 #if OLED_ENABLED
 
-    if (!_display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
+    if (!_display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR))
     {
         _ok = false;
         return false;

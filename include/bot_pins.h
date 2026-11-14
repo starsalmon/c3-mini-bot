@@ -111,6 +111,17 @@
 #ifndef I2C_SCL_PIN
 #define I2C_SCL_PIN 9
 #endif
+
+// SSD1306 128×64 on the same I2C bus as MPU / rear ToF (I2C labels on board).
+#ifndef OLED_ENABLED
+#define OLED_ENABLED 1
+#endif
+#ifndef OLED_I2C_ADDR
+#define OLED_I2C_ADDR 0x3C
+#endif
+#ifndef OLED_RESET_PIN
+#define OLED_RESET_PIN -1
+#endif
 #ifndef MPU6050_ADDR
 #define MPU6050_ADDR 0x68
 #endif

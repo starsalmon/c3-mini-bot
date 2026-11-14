@@ -18,13 +18,15 @@ Always use **BCM / GPIO numbers** in software — not physical header positions.
 | **2** | Battery sense (ADC) | Divider tap → `/bot1/battery/voltage` |
 | **5** | HC-SR04 TRIG | 3.3 V logic |
 | **6** | HC-SR04 ECHO | **Divider required** if module outputs 5 V |
-| **7** | TSOP4138 IR receive | Single receiver on pan head (`IR_RECV_RIGHT_PIN`) |
-| **8** | I2C SDA | MPU6050 + rear VL53L0X |
-| **9** | I2C SCL | MPU6050 + rear VL53L0X |
+| **4** | Passive piezo speaker | `SPEAKER_PIN` — fleet startup / peer ping |
+| **7** | TSOP4138 IR receive | Pan head (`IR_RECV_RIGHT_PIN`) |
+| **8** | I2C SDA | MPU6050, VL53L0X, SSD1306 OLED |
+| **9** | I2C SCL | MPU6050, VL53L0X, SSD1306 OLED |
 | **10** | Onboard WS2812 | Status LED (do not repurpose) |
-| **20** | IR LED beacon TX | 38 kHz — chase target for rover / other bots |
-| **21** | USB-UART TX | Console — avoid other use |
-| **4** | — | **Avoid** (JTAG / strap on C3 Zero) |
+| **18** | USB D− | Native USB — not for add-ons |
+| **19** | Front NeoPixel bar DIN | `FRONT_BAR_PIN` (same pad as USB D+) |
+| **20** | IR LED TX | Fleet 38 kHz on **GPIO20** (silk **RX**) |
+| **21** | UART0 TX | Console (silk **TX**) — avoid other use |
 
 Left TSOP channel is disabled in firmware (`IR_RECV_LEFT_PIN = -1`). Set `IR_DUAL=1` in fleet brains only after adding a second fixed TSOP.
 
@@ -112,7 +114,7 @@ Lens toward you, legs down: **1 = OUT, 2 = GND, 3 = VCC**.
 | **GND** | GND |
 | **VCC** | **3.3 V** |
 
-Firmware sweeps pan when no IR; holds bearing when seen (`IR_PAN_SCAN=1`). Topic: `/bot1/ir/detected`.
+While driving, firmware does occasional sonar pan glances; on IR hit it holds bearing (`IR_PAN_SCAN=1`). Topics: `/bot1/ir/detected`, `/bot1/ir/peer` (fleet ID of other bots).
 
 ---
 
@@ -145,6 +147,32 @@ Report-only on ROS — no auto shutdown (`BAT_SHUTDOWN_ENABLE=0`). Firmware auto
 
 ---
 
+## SSD1306 OLED (128×64, I2C)
+
+Same bus as MPU and rear ToF. Address **0x3C** (`OLED_I2C_ADDR`).
+
+| OLED module | C3 |
+|-------------|-----|
+| VCC | **3.3 V** |
+| GND | GND |
+| SDA | **GPIO8** |
+| SCL | **GPIO9** |
+
+Firmware splash in `oled_ssd1306.cpp` when `OLED_ENABLED=1` (default in `c3_mini_wifi*` envs).
+
+---
+
+## Speaker (passive piezo)
+
+| C3 | Connect |
+|----|---------|
+| **GPIO4** | Buzzer + |
+| GND | Buzzer − |
+
+Startup chirp and short ping when another fleet IR ID is decoded (`bot_speaker.cpp`). Avoid strong loads on GPIO4 at reset (C3 strap).
+
+---
+
 ## Status LED (GPIO10)
 
 Onboard WS2812 — boot / WiFi / agent / IR lock colours in `bot_status_led.cpp`. No extra wiring.
@@ -161,7 +189,7 @@ Onboard WS2812 — boot / WiFi / agent / IR lock colours in `bot_status_led.cpp`
                                    └──────────────────┘
 ```
 
-Fleet env: `BOT_NAMESPACE=bot1`, agent IP in `platformio_private.ini`. See `docs/SWARM.md`.
+Fleet env: `BOT_NAMESPACE=bot1`, `AGENT_IP=192.168.3.172`, `FLEET_IR_ID=1` in `platformio.ini` / `platformio_private.ini`. See `docs/SWARM.md` and `docs/PINMAP.md`.
 
 USB serial transport works for bench without WiFi.
 
@@ -179,5 +207,6 @@ pio run -e c3_bench -t upload                  # battery + servo bench
 
 ## Related
 
+- `docs/PINMAP.md` — build-oriented pin map (PDF-ready)
 - `docs/SWARM.md` — fleet + rover IR coordination
 - `include/bot_pins.h` — all `#define` overrides

@@ -2,7 +2,6 @@
 #include <cmath>
 #include <limits>
 #include <micro_ros_platformio.h>
-#include <WiFi.h>
 
 #include <geometry_msgs/msg/twist.h>
 #include <rcl/error_handling.h>

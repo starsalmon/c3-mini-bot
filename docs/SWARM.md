@@ -17,12 +17,13 @@ One **micro-ROS agent** on dockerhost bridges ESP32 minis into the same ROS 2 DD
   - `/bot1/cmd_vel`
   - `/bot1/sonar/range`, `/bot1/sonar/pan_deg`
   - `/bot1/imu`
-  - `/bot1/ir/detected`
+  - `/bot1/ir/detected`, `/bot1/ir/peer`
   - `/bot1/battery/voltage`
+  - `/bot1/tof/rear`, `/bot1/stall`
 
-## tracked-bot (bot2, NodeMCU-32S)
+## tracked-bot (bot2, Unexpected Maker TinyS3)
 
-Thin client like the mini: dockerhost `tracked-brain` publishes `/bot2/cmd_vel`. Firmware: `tracked_wifi_ota`, `BOT_NAMESPACE=bot2`. DRV8833 tracks + OTA (`tracked-bot.local`). No Go button — wander starts when the bot is on ROS. ToF (when fitted) publishes `/bot2/sonar/range`.
+Thin client like the mini: dockerhost brain publishes `/bot2/cmd_vel`. Firmware: `tracked_wifi_ota`, `BOT_NAMESPACE=bot2`, fleet IR ID **2**. DRV8833, OLED, speaker, IR TX/RX. OTA hostname `tracked-bot.local`.
 
 ## LEGO rover (bot0, Pi onboard)
 
@@ -148,7 +149,7 @@ Motor/speed calibration tools live in `~/robot-fleet/cal/` and are **not** part 
 
 Lens toward you, legs down: **1 = OUT, 2 = GND, 3 = VCC**.
 
-Firmware sweeps the pan servo when no IR is seen and holds the bearing when it is. `beacon_chase` steers from `/bot1/ir/right` + `/bot1/sonar/pan_deg` (default). Set `IR_DUAL=1` if you add a second fixed TSOP later.
+While driving, Roby keeps sonar forward with occasional pan glances; on IR it holds bearing. `beacon_chase` / `explore_then_chase` use `/bot1/ir/detected` and `/bot1/sonar/pan_deg`. Set `IR_DUAL=1` only after adding a second fixed TSOP.
 
 ## IR LED beacon (rover transmit)
 

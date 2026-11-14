@@ -2,7 +2,7 @@
 
 ESP32-C3 Zero **thin client** for the fleet brain on **dockerhost** (micro-ROS agent UDP **8888**, ROS 2 Jazzy, domain 0). Roby is **fleet IR ID 1**, ROS namespace **`bot1`**.
 
-**Pin and wiring source of truth:** `include/bot_pins.h` and `docs/PINMAP.md`. Human-readable wiring: `WIRING.md`.
+**Pin and wiring source of truth:** `include/bot_pins.h` and `docs/PINMAP.md`. Human-readable wiring: `WIRING.md`. Future ideas: [docs/TODO.md](docs/TODO.md).
 
 ## Hardware (fleet build)
 

@@ -23,9 +23,10 @@ Always use **BCM / GPIO numbers** in software — not physical header positions.
 | **8** | I2C SDA | MPU6050, VL53L0X, SSD1306 OLED |
 | **9** | I2C SCL | MPU6050, VL53L0X, SSD1306 OLED |
 | **10** | Onboard WS2812 | Status LED (do not repurpose) |
-| **19** | Front NeoPixel bar DIN | Optional 8× WS2812 (`FRONT_BAR_PIN`) |
-| **20** | IR LED TX | Fleet 38 kHz (`FLEET_IR_ID=1`); USB CDC leaves pin free |
-| **21** | USB-UART RX | Console — avoid other use |
+| **18** | USB D− | Native USB — not for add-ons |
+| **19** | Front NeoPixel bar DIN | `FRONT_BAR_PIN` (same pad as USB D+) |
+| **20** | IR LED TX | Fleet 38 kHz on **GPIO20** (silk **RX**) |
+| **21** | UART0 TX | Console (silk **TX**) — avoid other use |
 
 Left TSOP channel is disabled in firmware (`IR_RECV_LEFT_PIN = -1`). Set `IR_DUAL=1` in fleet brains only after adding a second fixed TSOP.
 

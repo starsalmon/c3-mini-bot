@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "bot_pins.h"
 #include "fleet_ps4_drive.h"
 #include "fleet_ps4_pkt.h"
 
@@ -17,6 +18,10 @@
 
 #ifndef BOT_PS4_MAX_ANG
 #define BOT_PS4_MAX_ANG 0.42f
+#endif
+
+#ifndef BOT_PS4_PAN_SLEW_DEG_PER_10MS
+#define BOT_PS4_PAN_SLEW_DEG_PER_10MS 2.5f
 #endif
 
 static const uint8_t kBridgeMac[6] = {FLEET_PS4_BRIDGE_MAC};
@@ -38,6 +43,7 @@ static bool s_pending_rumble = false;
 static uint32_t s_last_pkt_ms = 0;
 static uint32_t s_last_edge_ms = 0;
 static int8_t s_lx = 0;
+static int8_t s_rx_axis = 0;
 static uint8_t s_l2 = 0;
 static uint8_t s_r2 = 0;
 static uint16_t s_buttons_prev = 0;
@@ -46,6 +52,9 @@ static volatile uint32_t s_pending_ack_seq = 0;
 static BotPs4DriveOut s_drive_out;
 static float s_throttle_now = 0.0f;
 static uint32_t s_ack_tx = 0;
+static float s_pan_deg = static_cast<float>(PAN_CENTER_DEG);
+static bool s_pan_active = false;
+static uint32_t s_pan_last_ms = 0;
 
 static bool macEq(const uint8_t* a, const uint8_t* b) { return memcmp(a, b, 6) == 0; }
 
@@ -134,6 +143,70 @@ static float effectiveMaxThrottle() { return s_speed_low ? BOT_PS4_MAX_LIN * 0.5
 
 static float effectiveMaxSteer() { return s_steer_low ? BOT_PS4_MAX_ANG * 0.5f : BOT_PS4_MAX_ANG; }
 
+static float panTargetFromStick(int8_t rx) {
+  const float norm = fleetPs4AxisNorm(rx);
+  const float center = static_cast<float>(PAN_CENTER_DEG);
+  const float leftSpan = center - static_cast<float>(PAN_MIN_DEG);
+  const float rightSpan = static_cast<float>(PAN_MAX_DEG) - center;
+  if (norm >= 0.0f) {
+    return center + norm * rightSpan;
+  }
+  return center + norm * leftSpan;
+}
+
+static void panStep(uint32_t now_ms, int8_t rx, bool active) {
+  if (!active) {
+    s_pan_active = false;
+    return;
+  }
+  if (!s_pan_active) {
+    s_pan_active = true;
+    s_pan_last_ms = 0;
+  }
+  const float tgt = panTargetFromStick(rx);
+  uint32_t dt = 10;
+  if (s_pan_last_ms != 0) {
+    dt = now_ms - s_pan_last_ms;
+    if (dt > 80) {
+      dt = 80;
+    }
+    if (dt < 1) {
+      dt = 1;
+    }
+  }
+  s_pan_last_ms = now_ms;
+  const float max_step = BOT_PS4_PAN_SLEW_DEG_PER_10MS * (static_cast<float>(dt) / 10.0f);
+  float delta = tgt - s_pan_deg;
+  if (delta > max_step) {
+    delta = max_step;
+  } else if (delta < -max_step) {
+    delta = -max_step;
+  }
+  s_pan_deg += delta;
+  if (s_pan_deg < static_cast<float>(PAN_MIN_DEG)) {
+    s_pan_deg = static_cast<float>(PAN_MIN_DEG);
+  }
+  if (s_pan_deg > static_cast<float>(PAN_MAX_DEG)) {
+    s_pan_deg = static_cast<float>(PAN_MAX_DEG);
+  }
+}
+
+bool bot_ps4_controls_pan() { return s_pan_active; }
+
+float bot_ps4_pan_deg() { return s_pan_deg; }
+
+void bot_ps4_pan_seed(float deg) {
+  if (!s_pan_active) {
+    s_pan_deg = deg;
+    if (s_pan_deg < static_cast<float>(PAN_MIN_DEG)) {
+      s_pan_deg = static_cast<float>(PAN_MIN_DEG);
+    }
+    if (s_pan_deg > static_cast<float>(PAN_MAX_DEG)) {
+      s_pan_deg = static_cast<float>(PAN_MAX_DEG);
+    }
+  }
+}
+
 void bot_ps4_espnow_begin() {
   s_manual = false;
   s_last_pkt_ms = 0;
@@ -197,6 +270,7 @@ void bot_ps4_espnow_tick(uint32_t now_ms) {
     s_last_pkt_ms = now_ms;
     s_ctrl_ok = (pkt.flags & FLEET_PS4_FLAG_CTRL_OK) != 0;
     s_lx = pkt.lx;
+    s_rx_axis = pkt.rx;
     s_l2 = pkt.l2;
     s_r2 = pkt.r2;
 
@@ -224,6 +298,8 @@ void bot_ps4_espnow_tick(uint32_t now_ms) {
 
   const bool ctrl_lost = s_manual && !s_ctrl_ok;
   const bool link_failsafe = fleetPs4LinkFailsafe(now_ms, s_last_pkt_ms, s_manual, s_ctrl_ok);
+  const bool pan_active = s_manual && !ctrl_lost && !link_failsafe;
+  panStep(now_ms, s_rx_axis, pan_active);
 
   if (s_manual && !ctrl_lost && !link_failsafe) {
     const auto sp = fleetPs4ScaleManual(s_l2, s_r2, s_lx, effectiveMaxThrottle(), effectiveMaxSteer(),

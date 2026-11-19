@@ -20,6 +20,7 @@ WebServer server(80);
 DriveServos* s_drive = nullptr;
 bool s_routes_registered = false;
 bool s_listening = false;
+float s_pan_deg = 90.0f;
 
 const char kPage[] PROGMEM = R"html(<!DOCTYPE html>
 <html lang="en"><head>
@@ -84,6 +85,7 @@ details summary{cursor:pointer;padding:6px 0}
 <div class="card">
   <h2>Wireless update &amp; PS4</h2>
   <div id="sys"></div>
+  <div class="row" style="margin-top:10px"><span class="lbl">Sonar pan angle</span><span class="val" id="pan">—</span></div>
 </div>
 <details><summary>Technical details (NVS, build)</summary>
   <pre id="detail" style="white-space:pre-wrap;font-size:.8rem"></pre>
@@ -109,6 +111,7 @@ async function refresh(){
   else{ps4+=(j.ps4_manual?'MANUAL on, ':'manual off, ')+'pkt '+pktAge(j.ps4_pkt_age_ms);}
   if(j.ps4_speed_low)ps4+=', speed LOW';
   if(j.ps4_steer_low)ps4+=', steer LOW';
+  document.getElementById('pan').textContent=(j.pan_deg!=null)?(Number(j.pan_deg).toFixed(1)+'°'):'—';
   document.getElementById('sys').innerHTML=
     '<div>Firmware <b>'+j.fw+'</b> · built '+j.built+'</div>'+
     '<div>'+ota+(j.ota_busy?', <span class="warn">OTA busy</span>':'')+'</div>'+
@@ -159,7 +162,8 @@ void send_state() {
            "\"nvs_l\":%u,\"nvs_r\":%u,\"nvs_slew\":%u,\"nvs_off\":%u,\"nvs_valid\":%s,"
            "\"nvs_magic_hex\":%lu,"
            "\"ps4_ready\":%s,\"ps4_link\":%s,\"ps4_manual\":%s,\"ps4_ctrl\":%s,"
-           "\"ps4_pkt_age_ms\":%lu,\"ps4_speed_low\":%s,\"ps4_steer_low\":%s,\"ps4_ch\":%u}",
+           "\"ps4_pkt_age_ms\":%lu,\"ps4_speed_low\":%s,\"ps4_steer_low\":%s,\"ps4_ch\":%u,"
+           "\"pan_deg\":%.1f}",
            s_drive->stop_us_left(), s_drive->stop_us_right(), s_drive->slew_us_per_10ms(),
            s_drive->max_offset_us(), s_drive->hold_stop_active() ? "true" : "false", BOT_FW_GIT_HASH,
            BOT_FW_BUILD_TIME, ota.ota_listening ? "true" : "false", ota.ota_busy ? "true" : "false",
@@ -167,7 +171,8 @@ void send_state() {
            nvs.slew, nvs.maxoff, nvs_valid ? "true" : "false", (unsigned long)nvs.magic,
            ps4.espnow_ready ? "true" : "false", ps4.linked ? "true" : "false",
            ps4.manual ? "true" : "false", ps4.ctrl_ok ? "true" : "false", (unsigned long)pkt_age,
-           ps4.speed_low ? "true" : "false", ps4.steer_low ? "true" : "false", (unsigned)ps4.channel);
+           ps4.speed_low ? "true" : "false", ps4.steer_low ? "true" : "false", (unsigned)ps4.channel,
+           static_cast<double>(s_pan_deg));
   server.send(200, "application/json", buf);
 }
 
@@ -328,5 +333,7 @@ void bot_servo_web_session_reset() {
     start_listening();
   }
 }
+
+void bot_servo_web_set_pan_deg(float deg) { s_pan_deg = deg; }
 
 #endif

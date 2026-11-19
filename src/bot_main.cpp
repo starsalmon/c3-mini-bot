@@ -666,6 +666,7 @@ void loop() {
   }
 
 #if defined(ENABLE_OTA)
+  bot_servo_web_set_pan_deg(pan_deg);
   bot_servo_web_tick();
   if (bot_ota_busy()) {
     drive.stop();
@@ -716,8 +717,21 @@ void loop() {
     }
   });
 
+#if defined(ENABLE_PS4_ESPNOW)
+    bot_ps4_pan_seed(pan_deg);
+#endif
+    bool pan_from_ps4 = false;
+#if defined(ENABLE_PS4_ESPNOW)
+    pan_from_ps4 = bot_ps4_controls_pan();
+    if (pan_from_ps4) {
+      pan_deg = bot_ps4_pan_deg();
+      pan_servo.set_deg(pan_deg);
+    }
+#endif
 #if IR_PAN_SCAN
-  tick_pan_scan(now);
+    if (!pan_from_ps4) {
+      tick_pan_scan(now);
+    }
 #endif
 
   if (now - last_range >= RANGE_PERIOD_MS) {

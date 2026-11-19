@@ -27,6 +27,9 @@ void bot_ps4_espnow_begin();
 void bot_ps4_espnow_tick(uint32_t now_ms);
 BotPs4DriveOut bot_ps4_espnow_poll(uint32_t now_ms);
 bool bot_ps4_manual_active();
+bool bot_ps4_controls_pan();
+float bot_ps4_pan_deg();
+void bot_ps4_pan_seed(float deg);
 void bot_ps4_link_status(BotPs4LinkStatus* out);
 
 #else
@@ -37,6 +40,9 @@ inline BotPs4DriveOut bot_ps4_espnow_poll(uint32_t) {
   return {};
 }
 inline bool bot_ps4_manual_active() { return false; }
+inline bool bot_ps4_controls_pan() { return false; }
+inline float bot_ps4_pan_deg() { return 90.0f; }
+inline void bot_ps4_pan_seed(float) {}
 inline void bot_ps4_link_status(BotPs4LinkStatus* out) {
   if (out) {
     *out = {};

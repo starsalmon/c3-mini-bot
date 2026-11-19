@@ -90,6 +90,7 @@ Roby firmware (`c3_mini_wifi_ota`) includes the ESP-NOW receiver on the **home W
 | **R2** | Forward throttle (analog) |
 | **L2** | Brake when moving forward; reverse once near zero (net R2 − L2) |
 | **Left stick X** | Steer (expo ~0.6 after deadzone) |
+| **Right stick X** | Sonar pan (position across 30°–150°, centred at 90°; stick centre = pan centre) |
 | **Circle** | Toggle speed **LOW/HIGH** (LOW = 50% max forward; default **LOW**) |
 | **Square** | Toggle steer **LOW/HIGH** (LOW = 50% turn; default **HIGH**) |
 | **Share** (on bridge) | Cycle ESP-NOW target Jazz ↔ Roby (`ps4_bridge_fleet` only) |

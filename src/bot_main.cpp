@@ -145,43 +145,33 @@ void sync_ir_tx() {
 #endif
 }
 
-void sync_status_led() {
-  if (!drive.ok() || !pan_servo.ok()) {
-    bot_led_set(BotLedMode::Fault);
-    return;
-  }
-  if (!ros_ok) {
-    bot_led_set(BotLedMode::Boot);
-    return;
-  }
-  if (!sonar_ok) {
-    bot_led_set(BotLedMode::NoSonar);
-    return;
-  }
-#if IR_PAN_SCAN
-  if (!ir.read_any()) {
-    bot_led_set(BotLedMode::Scan);
-    return;
-  }
+bool had_agent_session = false;
+bool ros_connecting = false;
+
+void fill_status_led_input(BotStatusLedInput* in) {
+#if defined(MICRO_ROS_WIFI)
+  in->wifi_connected = WiFi.status() == WL_CONNECTED;
+  in->uros_transport = in->wifi_connected;
+#else
+  in->wifi_connected = true;
+  in->uros_transport = true;
 #endif
-  if (millis() - last_cmd_ms > CMD_TIMEOUT_MS) {
-    bot_led_set(BotLedMode::Cruise);
-    return;
-  }
-  if (last_lin < -0.05f) {
-    bot_led_set(BotLedMode::Reverse);
-  } else if (fabsf(last_ang) > 0.08f) {
-    bot_led_set(BotLedMode::Turn);
-  } else {
-    bot_led_set(BotLedMode::Cruise);
-  }
+  in->agent_connected = ros_ok;
+  in->agent_reconnecting = ros_connecting || (had_agent_session && !ros_ok);
+}
+
+void service_status_led(uint32_t now_ms) {
+  BotStatusLedInput in;
+  fill_status_led_input(&in);
+  bot_led_set_input(in);
+  bot_led_tick(now_ms);
 }
 
 bool wait_for_agent(uint32_t timeout_ms) {
   const uint32_t start = millis();
   while (millis() - start < timeout_ms) {
     const uint32_t t = millis();
-    bot_led_tick(t);
+    service_status_led(t);
 #if defined(ENABLE_OTA)
     bot_ota_tick();
 #endif
@@ -319,6 +309,7 @@ bool create_entities() {
   imu_msg.header.frame_id.size = sizeof(imu_frame) - 1;
 
   ros_ok = true;
+  had_agent_session = true;
   return true;
 }
 
@@ -356,7 +347,9 @@ void destroy_entities() {
 }
 
 bool connect_ros() {
+  ros_connecting = true;
   if (!wait_for_agent(AGENT_WAIT_MS)) {
+    ros_connecting = false;
     Serial.println("agent not reachable — check AGENT_IP, UDP 8888, same subnet");
     return false;
   }
@@ -364,8 +357,10 @@ bool connect_ros() {
     Serial.println("micro-ROS entity init failed — retrying in 2s");
     destroy_entities();
     delay(2000);
+    ros_connecting = false;
     return false;
   }
+  ros_connecting = false;
   // C3 LEDC: 38 kHz IR TX can clobber servo PWM if wheels attached first.
   drive.reattach(SERVO_LEFT_PIN, SERVO_RIGHT_PIN);
   pan_servo.reattach(SERVO_PAN_PIN);
@@ -497,7 +492,6 @@ void setup() {
   Serial.println("c3-mini-bot boot");
 
   bot_led_begin();
-  bot_led_set(BotLedMode::Boot);
   front_bar.begin(FRONT_BAR_PIN, FRONT_BAR_COUNT, FRONT_BAR_BRIGHTNESS);
 
   servo_hw_init();
@@ -619,7 +613,7 @@ void loop() {
   if (bot_ota_busy()) {
     drive.stop();
     front_bar.tick(now, ros_ok, false, 0.0f, 0.0f, sonar_ok, last_sonar_m, last_ir_detected, false, false);
-    bot_led_tick(now);
+    service_status_led(now);
     delay(10);
     return;
   }
@@ -628,9 +622,8 @@ void loop() {
   if (!ros_ok) {
     connect_ros();
     drive.stop();
-    sync_status_led();
     front_bar.tick(now, ros_ok, false, 0.0f, 0.0f, sonar_ok, last_sonar_m, last_ir_detected, false, false);
-    bot_led_tick(millis());
+    service_status_led(now);
     delay(200);
     return;
   }
@@ -647,7 +640,7 @@ void loop() {
       destroy_entities();
       ir_tx.set_enabled(false);
       drive.stop();
-      bot_led_set(BotLedMode::Fault);
+      service_status_led(now);
       return;
     }
   }
@@ -743,11 +736,10 @@ void loop() {
     }
   }
 
-  sync_status_led();
   const bool cmd_active = (now - last_cmd_ms) <= CMD_TIMEOUT_MS;
   const bool bump_pulse = imu_features.bump_pulse(now);
   front_bar.tick(now, ros_ok, cmd_active, last_lin, last_ang, sonar_ok, last_sonar_m, last_ir_detected,
                  stall_active, bump_pulse);
-  bot_led_tick(now);
+  service_status_led(now);
   delay(LOOP_MS);
 }

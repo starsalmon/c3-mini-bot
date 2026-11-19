@@ -175,7 +175,17 @@ Startup chirp and short ping when another fleet IR ID is decoded (`bot_speaker.c
 
 ## Status LED (GPIO10)
 
-Onboard WS2812 — boot / WiFi / agent / IR lock colours in `bot_status_led.cpp`. No extra wiring.
+Single onboard WS2812 (`STATUS_LED_PIN` **10**, **NEO_RGB**, brightness 20). Fleet WiFi / micro-ROS phases in `bot_status_led.cpp` (same pattern as Rover ProS3):
+
+| Phase | Colour | Pattern |
+|-------|--------|---------|
+| Boot | dim white | 350 ms solid after power-on |
+| WifiConnecting | amber | 400 ms on / off — no WiFi, or within 45 s grace |
+| WifiNoAgent | blue | 1200 ms on / off — WiFi up, no agent after grace |
+| AgentOk | dim green | solid — session + entities OK |
+| AgentLost | red | 400 ms blink — reconnect after prior session |
+
+`c3_autonomous` / `c3_bench` have no agent: LED stays **WifiConnecting** (amber) after boot grace. Motion colours are **not** on this LED; see `docs/TODO.md` for a future front bar. No extra wiring.
 
 ---
 

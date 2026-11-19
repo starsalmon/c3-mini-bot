@@ -39,8 +39,7 @@ void bot_halt_low_battery(const BatteryMonitor &battery) {
     s_pan->set_deg(PAN_CENTER_DEG);
   }
 
-  bot_led_set(BotLedMode::LowBatt);
-  bot_led_tick(millis());
+  bot_led_show_rgb(120, 0, 0);
   delay(50);
 
 #if defined(MICRO_ROS_WIFI)

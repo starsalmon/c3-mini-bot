@@ -1,68 +1,134 @@
 #include "bot_status_led.h"
 
 #include <Adafruit_NeoPixel.h>
-#include <math.h>
 
 #include "bot_pins.h"
 
 namespace {
 
-Adafruit_NeoPixel s_px(1, STATUS_LED_PIN, NEO_RGB + NEO_KHZ800);
-BotLedMode s_mode = BotLedMode::Boot;
-
-void write_rgb(uint8_t r, uint8_t g, uint8_t b) {
-  s_px.setPixelColor(0, r, g, b);
-  s_px.show();
-}
-
-uint8_t scale(uint8_t v, float gain) {
-  const int x = static_cast<int>(static_cast<float>(v) * gain);
-  return static_cast<uint8_t>(constrain(x, 0, 255));
-}
+Adafruit_NeoPixel* g_px = nullptr;
+BotStatusLed g_led;
 
 }  // namespace
 
-void bot_led_begin() {
-  s_px.begin();
-  s_px.setBrightness(40);
-  s_px.clear();
-  s_px.show();
-  write_rgb(30, 30, 10);
+void BotStatusLed::begin(int pin) {
+  _pin = pin;
+  if (_pin < 0) {
+    return;
+  }
+  static Adafruit_NeoPixel pixel(1, _pin, NEO_RGB + NEO_KHZ800);
+  g_px = &pixel;
+  g_px->begin();
+  g_px->setBrightness(kBrightness);
+  g_px->clear();
+  g_px->show();
+  _show(36, 36, 36);
+  const uint32_t now = millis();
+  _boot_until = now + kBootMs;
+  _network_grace_until = now + kNetworkGraceMs;
+  _ready = true;
 }
 
-void bot_led_set(BotLedMode mode) {
-  s_mode = mode;
+BotStatusLed::Phase BotStatusLed::_phase(uint32_t now_ms) const {
+  if (now_ms < _boot_until) {
+    return Phase::kBoot;
+  }
+  const bool net_grace = now_ms < _network_grace_until;
+  if (!_in.wifi_connected || !_in.uros_transport) {
+    return Phase::kWifiConnecting;
+  }
+  if (_in.agent_connected) {
+    return Phase::kAgentOk;
+  }
+  if (_in.agent_reconnecting && !net_grace) {
+    return Phase::kAgentLost;
+  }
+  if (net_grace) {
+    return Phase::kWifiConnecting;
+  }
+  return Phase::kWifiNoAgent;
+}
+
+void BotStatusLed::_show(uint8_t r, uint8_t g, uint8_t b) {
+  if (!g_px) {
+    return;
+  }
+  g_px->setPixelColor(0, r, g, b);
+  g_px->show();
+}
+
+void BotStatusLed::_render(Phase phase, uint32_t now_ms) {
+  bool on = true;
+  if (phase == Phase::kWifiConnecting || phase == Phase::kAgentLost) {
+    on = ((now_ms / 400) % 2) == 0;
+  } else if (phase == Phase::kWifiNoAgent) {
+    on = ((now_ms / 1200) % 2) == 0;
+  }
+
+  uint8_t r = 0, g = 0, b = 0;
+  switch (phase) {
+    case Phase::kBoot:
+      r = g = b = 36;
+      break;
+    case Phase::kWifiConnecting:
+      if (on) {
+        r = 160;
+        g = 70;
+      }
+      break;
+    case Phase::kWifiNoAgent:
+      if (on) {
+        b = 90;
+      }
+      break;
+    case Phase::kAgentOk:
+      g = 32;
+      break;
+    case Phase::kAgentLost:
+      if (on) {
+        r = 120;
+      }
+      break;
+  }
+  _show(r, g, b);
+}
+
+void BotStatusLed::tick(uint32_t now_ms) {
+  if (!_ready || _pin < 0) {
+    return;
+  }
+
+  const Phase phase = _phase(now_ms);
+  const bool fast = (phase == Phase::kWifiConnecting || phase == Phase::kAgentLost);
+  const bool slow = (phase == Phase::kWifiNoAgent);
+  const bool on = (!fast && !slow) ? true : (((now_ms / (fast ? 400 : 1200)) % 2) == 0);
+
+  if (phase == _last_phase && on == _last_on && (now_ms - _last_show_ms) < 40) {
+    return;
+  }
+
+  _last_phase = phase;
+  _last_on = on;
+  _last_show_ms = now_ms;
+  _render(phase, now_ms);
+}
+
+void BotStatusLed::show_rgb(uint8_t r, uint8_t g, uint8_t b) {
+  _show(r, g, b);
+}
+
+void bot_led_begin() {
+  g_led.begin(STATUS_LED_PIN);
+}
+
+void bot_led_set_input(const BotStatusLedInput& in) {
+  g_led.set_input(in);
 }
 
 void bot_led_tick(uint32_t now_ms) {
-  const float t = now_ms / 1000.0f;
-  const float pulse = 0.5f + 0.5f * sinf(t * 2.0f * static_cast<float>(M_PI) * 1.5f);
-  const float fast = 0.5f + 0.5f * sinf(t * 2.0f * static_cast<float>(M_PI) * 4.0f);
+  g_led.tick(now_ms);
+}
 
-  switch (s_mode) {
-    case BotLedMode::Boot:
-      write_rgb(scale(200, pulse), scale(120, pulse), 0);
-      break;
-    case BotLedMode::Fault:
-      write_rgb(220, 0, 0);
-      break;
-    case BotLedMode::NoSonar:
-      write_rgb(scale(120, fast), 0, scale(180, fast));
-      break;
-    case BotLedMode::Scan:
-      write_rgb(0, scale(80, pulse), scale(220, pulse));
-      break;
-    case BotLedMode::Cruise:
-      write_rgb(0, scale(200, 0.6f + 0.4f * pulse), 0);
-      break;
-    case BotLedMode::Reverse:
-      write_rgb(scale(220, 0.7f + 0.3f * fast), scale(90, 0.7f), 0);
-      break;
-    case BotLedMode::Turn:
-      write_rgb(0, scale(180, fast), scale(200, fast));
-      break;
-    case BotLedMode::LowBatt:
-      write_rgb(scale(240, fast), 0, 0);
-      break;
-  }
+void bot_led_show_rgb(uint8_t r, uint8_t g, uint8_t b) {
+  g_led.show_rgb(r, g, b);
 }

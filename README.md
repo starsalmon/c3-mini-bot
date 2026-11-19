@@ -18,7 +18,8 @@ ESP32-C3 Zero **thin client** for the fleet brain on **dockerhost** (micro-ROS a
 | TSOP4138 | IR receive (fleet + beacon) |
 | IR LED | Fleet IR TX (38 kHz, ID 1) |
 | Passive piezo | Speaker on GPIO4 |
-| Optional 8× NeoPixel bar | Front status bar GPIO19 |
+| Onboard WS2812 (GPIO10) | Fleet WiFi / micro-ROS status (amber connecting, blue no agent, green OK) |
+| Optional 8× NeoPixel bar | Motion hints on GPIO19 (open hardware issue — not used for fleet status) |
 
 ## Quick start
 

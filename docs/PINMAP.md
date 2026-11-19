@@ -27,7 +27,7 @@ Use **GPIO (BCM)** numbers in firmware (`include/bot_pins.h`).
 | SCL | 9 | I2C SCL | MPU6050 SCL, VL53L0X SCL, SSD1306 SCL | Shared bus |
 | LED | 10 | NeoPixel | Onboard WS2812 | Fleet status (boot / WiFi / agent); NEO_RGB; do not repurpose |
 | USB D− | 18 | USB | Type-C data − | Native USB; do not use as GPIO with USB active |
-| USB D+ | 19 | NeoPixel data | Front 8× WS2812 bar DIN (`FRONT_BAR_PIN`) | Same pin as USB D+ — only use if strip wiring matches GPIO19 |
+| USB D+ | 19 | NeoPixel data | Front 8× WS2812 bar DIN (`FRONT_BAR_PIN`) | Fleet WiFi/OTA: USB CDC off → bar active; CDC-on envs: use OTA_usb/bench only |
 | RX (silk) | 20 | LEDC 38 kHz | IR LED anode via 100–150 Ω | UART0 RX; fleet IR `IR_TX_PIN` |
 | TX (silk) | 21 | UART0 TX | USB-serial console | Official silk **TX** = GPIO21; spare GPIO only without console |
 

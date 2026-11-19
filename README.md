@@ -29,9 +29,11 @@ ESP32-C3 Zero **thin client** for the fleet brain on **dockerhost** (micro-ROS a
 cp platformio_private.ini.example platformio_private.ini
 # Set WIFI_*, AGENT_IP=192.168.3.172, BOT_NAMESPACE=bot1
 
-pio run -e c3_mini_wifi_ota_usb -t upload   # first USB flash only
+pio run -e c3_mini_wifi_ota_usb -t upload   # first USB flash only (USB CDC on for flash + serial)
 pio run -e c3_mini_wifi_ota -t upload       # OTA — stop motion first (see OTA safety)
 ```
+
+**`c3_mini_wifi` / `c3_mini_wifi_ota`:** USB CDC is **off** so **GPIO19** drives the front NeoPixel bar; use OTA or UART **GPIO20/21** for logs. **`c3_mini_wifi_ota_usb`**, **`c3_bench`**, and **`c3_mini_serial`** keep USB CDC for esptool / bench / micro-ROS serial (front bar on GPIO19 may not work on those builds while CDC owns D+).
 
 On a fresh PlatformIO install, pioarduino sometimes fetches `framework-arduinoespressif32-libs` before the matching `framework-arduinoespressif32` tarball. If the first `pio run` errors on missing Arduino core headers, run `pio pkg install -e c3_mini_wifi_ota` once, then build again.
 

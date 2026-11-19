@@ -15,8 +15,12 @@ class DriveServos {
   void stop();
   void set_twist(float linear, float angular);
   void set_wheel_speeds(float left, float right);
+  void set_stop_us(uint16_t left_us, uint16_t right_us);
+  uint16_t stop_us_left() const { return _stop_us_l; }
+  uint16_t stop_us_right() const { return _stop_us_r; }
   void tick();
   bool moving() const { return fabsf(_cur_l) > MOVE_EPS || fabsf(_cur_r) > MOVE_EPS; }
+  bool detached() const { return _detached; }
 
  private:
   void apply_current();
@@ -35,6 +39,8 @@ class DriveServos {
   uint32_t _idle_since_ms = 0;
   uint16_t _last_us_l = 0;
   uint16_t _last_us_r = 0;
+  uint16_t _stop_us_l = SERVO_STOP_US_LEFT;
+  uint16_t _stop_us_r = SERVO_STOP_US_RIGHT;
   float _trim_left = 1.0f;
   float _trim_right = 1.0f;
   float _tgt_l = 0.0f;

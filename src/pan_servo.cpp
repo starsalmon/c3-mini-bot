@@ -8,6 +8,7 @@ bool PanServo::begin(int pin) {
     return true;
   }
   servo_hw_init();
+  servo_hw_prepare(_servo);
   _servo.attach(pin, 1000, 2000);
   _ok = _servo.attached();
   if (_ok) {

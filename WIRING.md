@@ -23,8 +23,8 @@ Always use **BCM / GPIO numbers** in software — not physical header positions.
 | **8** | I2C SDA | MPU6050, VL53L0X, SSD1306 OLED |
 | **9** | I2C SCL | MPU6050, VL53L0X, SSD1306 OLED |
 | **10** | Onboard WS2812 | Status LED (do not repurpose) |
-| **18** | USB D− | Native USB — not for add-ons |
-| **19** | Front NeoPixel bar DIN | `FRONT_BAR_PIN` (same pad as USB D+) |
+| **18** | USB D− | Native USB when CDC enabled |
+| **19** | Front NeoPixel bar DIN | `FRONT_BAR_PIN` — **fleet WiFi/OTA builds disable USB CDC** so GPIO19 is free |
 | **20** | IR LED TX | Fleet 38 kHz on **GPIO20** (silk **RX**) |
 | **21** | UART0 TX | Console (silk **TX**) — avoid other use |
 
@@ -53,7 +53,7 @@ Common **GND** between C3, BEC, and sensors.
 | Wheel R (FS90R) | **GPIO1** | VBAT + GND |
 | Pan (FS90) | **GPIO3** | 5 V BEC + GND |
 
-FS90R: **1500 µs = stop** (`SERVO_STOP_US`). One wheel may need invert in firmware (`SERVO_INVERT_RIGHT=1` default).
+FS90R: default **1500 µs neutral** per wheel (`SERVO_STOP_US_LEFT` / `SERVO_STOP_US_RIGHT` in `bot_pins.h`). Commands within **±40 µs** (`SERVO_STOP_DEADBAND_US`) snap to exact neutral. PWM **50 Hz**, 16-bit LEDC; wheels detach after **300 ms** stopped (`SERVO_IDLE_DETACH_MS`) so FS90R does not creep. Tune neutral in `platformio_private.ini` (`-DSERVO_STOP_US_LEFT=…`) or bench `Nl`/`Nr` (µs). One wheel may need invert (`SERVO_INVERT_RIGHT=1` default).
 
 ---
 

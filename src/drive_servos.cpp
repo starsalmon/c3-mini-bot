@@ -11,7 +11,11 @@ bool DriveServos::begin(int left_pin, int right_pin) {
   _right_pin = right_pin;
   _trim_left = SERVO_TRIM_LEFT;
   _trim_right = SERVO_TRIM_RIGHT;
+  _stop_us_l = SERVO_STOP_US_LEFT;
+  _stop_us_r = SERVO_STOP_US_RIGHT;
   servo_hw_init();
+  servo_hw_prepare(_left);
+  servo_hw_prepare(_right);
   _left.attach(left_pin, SERVO_MIN_US, SERVO_MAX_US);
   _right.attach(right_pin, SERVO_MIN_US, SERVO_MAX_US);
   _ok = _left.attached() && _right.attached();
@@ -36,20 +40,32 @@ bool DriveServos::reattach(int left_pin, int right_pin) {
 uint16_t DriveServos::speed_to_us(float speed, bool left) const {
   if (speed > 1.0f) speed = 1.0f;
   if (speed < -1.0f) speed = -1.0f;
-  const uint16_t stop_us = left ? SERVO_STOP_US_LEFT : SERVO_STOP_US_RIGHT;
+  const uint16_t stop_us = left ? _stop_us_l : _stop_us_r;
+  if (fabsf(speed) <= MOVE_EPS) {
+    return stop_us;
+  }
   const float span = static_cast<float>(SERVO_MAX_US - SERVO_MIN_US) * 0.5f;
-  const float us = static_cast<float>(stop_us) + speed * span;
-  if (us < static_cast<float>(SERVO_MIN_US)) return SERVO_MIN_US;
-  if (us > static_cast<float>(SERVO_MAX_US)) return SERVO_MAX_US;
+  float us = static_cast<float>(stop_us) + speed * span;
+  if (us < static_cast<float>(SERVO_MIN_US)) us = static_cast<float>(SERVO_MIN_US);
+  if (us > static_cast<float>(SERVO_MAX_US)) us = static_cast<float>(SERVO_MAX_US);
+  const int delta = static_cast<int>(us) - static_cast<int>(stop_us);
+  if (abs(delta) <= SERVO_STOP_DEADBAND_US) {
+    return stop_us;
+  }
   return static_cast<uint16_t>(us);
+}
+
+void DriveServos::set_stop_us(uint16_t left_us, uint16_t right_us) {
+  _stop_us_l = constrain(left_us, SERVO_MIN_US, SERVO_MAX_US);
+  _stop_us_r = constrain(right_us, SERVO_MIN_US, SERVO_MAX_US);
 }
 
 void DriveServos::apply_stop_hold() {
   if (!_ok || _detached) {
     return;
   }
-  const uint16_t us_l = SERVO_STOP_US_LEFT;
-  const uint16_t us_r = SERVO_STOP_US_RIGHT;
+  const uint16_t us_l = _stop_us_l;
+  const uint16_t us_r = _stop_us_r;
   if (us_l != _last_us_l) {
     _left.writeMicroseconds(us_l);
     _last_us_l = us_l;
@@ -80,6 +96,8 @@ void DriveServos::ensure_attached() {
   if (!_ok || !_detached) {
     return;
   }
+  servo_hw_prepare(_left);
+  servo_hw_prepare(_right);
   _left.attach(_left_pin, SERVO_MIN_US, SERVO_MAX_US);
   _right.attach(_right_pin, SERVO_MIN_US, SERVO_MAX_US);
   _detached = false;
@@ -94,6 +112,14 @@ void DriveServos::detach_idle() {
   }
   _left.detach();
   _right.detach();
+  if (_left_pin >= 0) {
+    pinMode(_left_pin, OUTPUT);
+    digitalWrite(_left_pin, LOW);
+  }
+  if (_right_pin >= 0) {
+    pinMode(_right_pin, OUTPUT);
+    digitalWrite(_right_pin, LOW);
+  }
   _detached = true;
   _last_us_l = _last_us_r = 0;
 }
@@ -115,11 +141,15 @@ void DriveServos::set_targets(float left, float right) {
 }
 
 void DriveServos::stop() {
+  const bool had_motion = fabsf(_tgt_l) > MOVE_EPS || fabsf(_tgt_r) > MOVE_EPS ||
+                          fabsf(_cur_l) > MOVE_EPS || fabsf(_cur_r) > MOVE_EPS;
   _tgt_l = _tgt_r = _cur_l = _cur_r = 0.0f;
   if (!_ok) {
     return;
   }
-  _idle_since_ms = millis();
+  if (had_motion) {
+    _idle_since_ms = millis();
+  }
   if (_detached) {
     return;
   }

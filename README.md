@@ -33,6 +33,8 @@ pio run -e c3_mini_wifi_ota_usb -t upload   # first USB flash only
 pio run -e c3_mini_wifi_ota -t upload       # OTA — stop motion first (see OTA safety)
 ```
 
+On a fresh PlatformIO install, pioarduino sometimes fetches `framework-arduinoespressif32-libs` before the matching `framework-arduinoespressif32` tarball. If the first `pio run` errors on missing Arduino core headers, run `pio pkg install -e c3_mini_wifi_ota` once, then build again.
+
 On dockerhost: `docker compose up -d` (agent + fleet-brain). See `docs/SWARM.md`.
 
 ### Bench / bring-up

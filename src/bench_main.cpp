@@ -5,6 +5,7 @@
 #include "bot_pins.h"
 #include "bot_status_led.h"
 #include "drive_cli.h"
+#include "drive_cal_store.h"
 #include "drive_servos.h"
 #include "ir_beacon.h"
 #include "ir_tx.h"
@@ -145,6 +146,11 @@ void setup() {
   servo_hw_init();
   if (!drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN)) {
     Serial.println("WARN: wheel servos not attached");
+  } else {
+    DriveCalStore::Settings cal;
+    if (DriveCalStore::load(&cal)) {
+      DriveCalStore::apply(drive, cal);
+    }
   }
   pan.begin(SERVO_PAN_PIN);
   pan.set_deg(PAN_CENTER_DEG);
@@ -165,8 +171,9 @@ void loop() {
   static char line[32];
   static uint8_t line_len = 0;
 
-  drive.tick();
-  service_status_led(millis());
+  const uint32_t now = millis();
+  drive.tick(now);
+  service_status_led(now);
   ir_tx.tick();
 
   while (Serial.available()) {

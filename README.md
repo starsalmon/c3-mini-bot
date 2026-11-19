@@ -69,4 +69,4 @@ Topics are relative in firmware; the agent exposes them under `/bot1/…`:
 | `tof/rear` | `sensor_msgs/Range` | ← ESP |
 | `stall` | `std_msgs/Bool` | ← ESP |
 
-Tune wheels in `include/bot_pins.h` (`SERVO_STOP_US_*`, trims/inverts).
+Tune wheels in `include/bot_pins.h` (`SERVO_STOP_US_*`, trims/inverts). **Neutral trim from phone:** with `c3_mini_wifi_ota` on Wi‑Fi, open **[http://c3-bot1.local/](http://c3-bot1.local/)** or **[http://192.168.3.181/](http://192.168.3.181/)** → Hold stop → nudge µs → Save (NVS).

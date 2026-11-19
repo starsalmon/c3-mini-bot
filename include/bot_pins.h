@@ -71,7 +71,19 @@
 #define SERVO_PWM_RESOLUTION_BITS 16  // ~0.3 µs/tick at 50 Hz on LEDC
 #endif
 #ifndef SERVO_IDLE_DETACH_MS
-#define SERVO_IDLE_DETACH_MS 300  // detach PWM after stop — FS90R idle creep/jitter
+#define SERVO_IDLE_DETACH_MS 300  // detach after out pulse reaches neutral (see drive_servos)
+#endif
+#ifndef SERVO_MAX_OFFSET_US
+#define SERVO_MAX_OFFSET_US 350  // max |speed=1| pulse offset from neutral (quieter gears)
+#endif
+#ifndef SERVO_SLEW_US_PER_10MS
+#define SERVO_SLEW_US_PER_10MS 8  // pulse slew limit (~0.44 s 1500→1850 at 8/10ms)
+#endif
+#ifndef SERVO_OUT_TICK_MS
+#define SERVO_OUT_TICK_MS 10  // fixed-rate pulse update (100 Hz)
+#endif
+#ifndef SERVO_HOLD_STOP_MS
+#define SERVO_HOLD_STOP_MS 8000  // web "Hold stop" — neutral PWM, no detach
 #endif
 #ifndef SERVO_MIN_US
 #define SERVO_MIN_US 1100

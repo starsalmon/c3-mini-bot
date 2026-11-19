@@ -25,7 +25,9 @@
 #include "bot_front_bar.h"
 #include "bot_status_led.h"
 #include "bot_tof.h"
+#include "drive_cal_store.h"
 #include "drive_servos.h"
+#include "bot_servo_web.h"
 #include "fleet_ir_proto.h"
 #include "fleet_ir_ping.h"
 #include "fleet_ir_rx.h"
@@ -131,6 +133,7 @@ void apply_drive() {
 
 void on_cmd(const void *msgin) {
   const auto *msg = static_cast<const geometry_msgs__msg__Twist *>(msgin);
+  drive.cancel_hold_stop();
   last_lin = static_cast<float>(msg->linear.x);
   last_ang = static_cast<float>(msg->angular.z);
   last_cmd_ms = millis();
@@ -540,6 +543,7 @@ void setup() {
   Serial.println(WiFi.localIP());
 #if defined(ENABLE_OTA)
   bot_ota_begin();
+  bot_servo_web_begin(drive);
 #endif
 #else
   Serial.println("micro-ROS serial transport (USB)");
@@ -557,6 +561,12 @@ void setup() {
   if (!drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN)) {
     Serial.println("WARN: wheel servos not attached");
   } else {
+    DriveCalStore::Settings cal;
+    if (DriveCalStore::load(&cal)) {
+      DriveCalStore::apply(drive, cal);
+      Serial.printf("Drive cal NVS L=%u R=%u slew=%u off=%u\n", cal.stop_us_left,
+                    cal.stop_us_right, cal.slew_us_per_10ms, cal.max_offset_us);
+    }
     drive.stop();
   }
   pan_servo.begin(SERVO_PAN_PIN);
@@ -610,6 +620,7 @@ void loop() {
 
 #if defined(ENABLE_OTA)
   bot_ota_tick();
+  bot_servo_web_tick();
   if (bot_ota_busy()) {
     drive.stop();
     front_bar.tick(now, ros_ok, false, 0.0f, 0.0f, sonar_ok, last_sonar_m, last_ir_detected, false, false);
@@ -646,7 +657,7 @@ void loop() {
   }
 
   apply_drive();
-  drive.tick();
+  drive.tick(now);
   sync_ir_tx();
   fleet_ir_service([&]() { ir_tx.tick(); }, [&]() {
     if (!ir_tx.in_tx_frame()) {

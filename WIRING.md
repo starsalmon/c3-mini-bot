@@ -53,7 +53,9 @@ Common **GND** between C3, BEC, and sensors.
 | Wheel R (FS90R) | **GPIO1** | VBAT + GND |
 | Pan (FS90) | **GPIO3** | 5 V BEC + GND |
 
-FS90R: default **1500 µs neutral** per wheel (`SERVO_STOP_US_LEFT` / `SERVO_STOP_US_RIGHT` in `bot_pins.h`). Commands within **±40 µs** (`SERVO_STOP_DEADBAND_US`) snap to exact neutral. PWM **50 Hz**, 16-bit LEDC; wheels detach after **300 ms** stopped (`SERVO_IDLE_DETACH_MS`) so FS90R does not creep. Tune neutral in `platformio_private.ini` (`-DSERVO_STOP_US_LEFT=…`) or bench `Nl`/`Nr` (µs). One wheel may need invert (`SERVO_INVERT_RIGHT=1` default).
+FS90R: default **1500 µs neutral** per wheel (compile defaults; **NVS overrides at boot** on fleet firmware). Commands within **±40 µs** (`SERVO_STOP_DEADBAND_US`) snap to exact neutral. Output pulses slew **8 µs / 10 ms** (`SERVO_SLEW_US_PER_10MS`), max travel **±350 µs** from neutral (`SERVO_MAX_OFFSET_US`). PWM **50 Hz**, 16-bit LEDC; detach **300 ms after** the output pulse reaches neutral (`SERVO_IDLE_DETACH_MS`).
+
+**Phone calibration (fleet `c3_mini_wifi_ota` only):** on the same Wi‑Fi as Roby open **http://c3-bot1.local/** or **http://192.168.3.181/** → **Hold stop** (8 s, neutral PWM only) → nudge **Left/Right ±1/±5 µs** until the creeping wheel stops → **Save** (writes NVS). Any `cmd_vel` cancels hold. Bench: `Nl`/`Nr` serial commands (USB envs only).
 
 ---
 

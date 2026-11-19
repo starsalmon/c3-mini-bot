@@ -4,6 +4,7 @@
 #include "bot_pins.h"
 #include "bot_front_bar.h"
 #include "bot_status_led.h"
+#include "drive_cal_store.h"
 #include "drive_servos.h"
 #include "bot_imu_features.h"
 #include "mpu6050_imu.h"
@@ -160,6 +161,12 @@ void setup() {
   front_bar.begin(FRONT_BAR_PIN, FRONT_BAR_COUNT, FRONT_BAR_BRIGHTNESS);
 
   const bool drive_ok = drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN);
+  if (drive_ok) {
+    DriveCalStore::Settings cal;
+    if (DriveCalStore::load(&cal)) {
+      DriveCalStore::apply(drive, cal);
+    }
+  }
   const bool pan_ok = pan.begin(SERVO_PAN_PIN);
   sonar.begin(SONAR_TRIG_PIN, SONAR_ECHO_PIN);
   imu_ok = imu.begin(I2C_SDA_PIN, I2C_SCL_PIN, MPU6050_ADDR);
@@ -224,7 +231,7 @@ void loop() {
         enter_cruise();
       }
     }
-    drive.tick();
+    drive.tick(now);
     delay(LOOP_MS);
     return;
   }
@@ -268,8 +275,8 @@ void loop() {
   }
 
   drive.set_twist(lin, ang);
-  drive.tick();
   front_bar.tick(now, true, true, lin, ang, sonar_ok, ahead_m, false, stalled, imu_features.bump_pulse(now));
+  drive.tick(now);
   service_status_led(now);
   delay(LOOP_MS);
 }

@@ -3,6 +3,30 @@
 #include "bot_pins.h"
 #include "servo_hw.h"
 
+bool DriveServos::same_side_of_neutral(int16_t a, int16_t b, int16_t stop) {
+  const int da = a - stop;
+  const int db = b - stop;
+  if (da == 0 || db == 0) {
+    return true;
+  }
+  return (da > 0) == (db > 0);
+}
+
+int16_t DriveServos::slew_us_step(int16_t out, int16_t tgt, int16_t stop, uint16_t max_step) {
+  int16_t eff_tgt = tgt;
+  if (!same_side_of_neutral(out, tgt, stop) && out != stop) {
+    eff_tgt = stop;
+  }
+  int32_t delta = static_cast<int32_t>(eff_tgt) - static_cast<int32_t>(out);
+  if (delta > static_cast<int32_t>(max_step)) {
+    delta = max_step;
+  }
+  if (delta < -static_cast<int32_t>(max_step)) {
+    delta = -static_cast<int32_t>(max_step);
+  }
+  return static_cast<int16_t>(out + delta);
+}
+
 bool DriveServos::begin(int left_pin, int right_pin) {
   if (_ok) {
     return true;
@@ -13,6 +37,8 @@ bool DriveServos::begin(int left_pin, int right_pin) {
   _trim_right = SERVO_TRIM_RIGHT;
   _stop_us_l = SERVO_STOP_US_LEFT;
   _stop_us_r = SERVO_STOP_US_RIGHT;
+  _slew_us = SERVO_SLEW_US_PER_10MS;
+  _max_offset_us = SERVO_MAX_OFFSET_US;
   servo_hw_init();
   servo_hw_prepare(_left);
   servo_hw_prepare(_right);
@@ -20,6 +46,12 @@ bool DriveServos::begin(int left_pin, int right_pin) {
   _right.attach(right_pin, SERVO_MIN_US, SERVO_MAX_US);
   _ok = _left.attached() && _right.attached();
   _detached = false;
+  _out_us_l = _stop_us_l;
+  _out_us_r = _stop_us_r;
+  _last_us_l = _last_us_r = 0;
+  _last_tick_ms = 0;
+  _neutral_since_ms = 0;
+  _hold_until_ms = 0;
   if (_ok) {
     stop();
   }
@@ -37,6 +69,11 @@ bool DriveServos::reattach(int left_pin, int right_pin) {
   return begin(left_pin, right_pin);
 }
 
+void DriveServos::set_motion_limits(uint16_t slew_us_per_10ms, uint16_t max_offset_us) {
+  _slew_us = slew_us_per_10ms;
+  _max_offset_us = constrain(max_offset_us, 50, 500);
+}
+
 uint16_t DriveServos::speed_to_us(float speed, bool left) const {
   if (speed > 1.0f) speed = 1.0f;
   if (speed < -1.0f) speed = -1.0f;
@@ -44,7 +81,7 @@ uint16_t DriveServos::speed_to_us(float speed, bool left) const {
   if (fabsf(speed) <= MOVE_EPS) {
     return stop_us;
   }
-  const float span = static_cast<float>(SERVO_MAX_US - SERVO_MIN_US) * 0.5f;
+  const float span = static_cast<float>(_max_offset_us);
   float us = static_cast<float>(stop_us) + speed * span;
   if (us < static_cast<float>(SERVO_MIN_US)) us = static_cast<float>(SERVO_MIN_US);
   if (us > static_cast<float>(SERVO_MAX_US)) us = static_cast<float>(SERVO_MAX_US);
@@ -58,38 +95,44 @@ uint16_t DriveServos::speed_to_us(float speed, bool left) const {
 void DriveServos::set_stop_us(uint16_t left_us, uint16_t right_us) {
   _stop_us_l = constrain(left_us, SERVO_MIN_US, SERVO_MAX_US);
   _stop_us_r = constrain(right_us, SERVO_MIN_US, SERVO_MAX_US);
+  if (hold_stop_active() && !_detached) {
+    _out_us_l = _stop_us_l;
+    _out_us_r = _stop_us_r;
+    write_outputs();
+  }
+}
+
+bool DriveServos::at_neutral_pulse() const {
+  const int dl = abs(static_cast<int>(_out_us_l) - static_cast<int>(_stop_us_l));
+  const int dr = abs(static_cast<int>(_out_us_r) - static_cast<int>(_stop_us_r));
+  return dl <= SERVO_STOP_DEADBAND_US && dr <= SERVO_STOP_DEADBAND_US;
+}
+
+bool DriveServos::moving() const {
+  if (fabsf(_tgt_l) > MOVE_EPS || fabsf(_tgt_r) > MOVE_EPS) {
+    return true;
+  }
+  return !at_neutral_pulse();
+}
+
+void DriveServos::write_outputs() {
+  if (!_ok || _detached) {
+    return;
+  }
+  if (_out_us_l != _last_us_l) {
+    _left.writeMicroseconds(_out_us_l);
+    _last_us_l = _out_us_l;
+  }
+  if (_out_us_r != _last_us_r) {
+    _right.writeMicroseconds(_out_us_r);
+    _last_us_r = _out_us_r;
+  }
 }
 
 void DriveServos::apply_stop_hold() {
-  if (!_ok || _detached) {
-    return;
-  }
-  const uint16_t us_l = _stop_us_l;
-  const uint16_t us_r = _stop_us_r;
-  if (us_l != _last_us_l) {
-    _left.writeMicroseconds(us_l);
-    _last_us_l = us_l;
-  }
-  if (us_r != _last_us_r) {
-    _right.writeMicroseconds(us_r);
-    _last_us_r = us_r;
-  }
-}
-
-void DriveServos::apply_current() {
-  if (!_ok || _detached) {
-    return;
-  }
-  const uint16_t us_l = speed_to_us(_cur_l, true);
-  const uint16_t us_r = speed_to_us(_cur_r, false);
-  if (us_l != _last_us_l) {
-    _left.writeMicroseconds(us_l);
-    _last_us_l = us_l;
-  }
-  if (us_r != _last_us_r) {
-    _right.writeMicroseconds(us_r);
-    _last_us_r = us_r;
-  }
+  _out_us_l = _stop_us_l;
+  _out_us_r = _stop_us_r;
+  write_outputs();
 }
 
 void DriveServos::ensure_attached() {
@@ -102,8 +145,8 @@ void DriveServos::ensure_attached() {
   _right.attach(_right_pin, SERVO_MIN_US, SERVO_MAX_US);
   _detached = false;
   _last_us_l = _last_us_r = 0;
-  _idle_since_ms = millis();
-  apply_stop_hold();
+  _neutral_since_ms = 0;
+  write_outputs();
 }
 
 void DriveServos::detach_idle() {
@@ -122,6 +165,7 @@ void DriveServos::detach_idle() {
   }
   _detached = true;
   _last_us_l = _last_us_r = 0;
+  _neutral_since_ms = 0;
 }
 
 void DriveServos::set_targets(float left, float right) {
@@ -141,19 +185,10 @@ void DriveServos::set_targets(float left, float right) {
 }
 
 void DriveServos::stop() {
-  const bool had_motion = fabsf(_tgt_l) > MOVE_EPS || fabsf(_tgt_r) > MOVE_EPS ||
-                          fabsf(_cur_l) > MOVE_EPS || fabsf(_cur_r) > MOVE_EPS;
-  _tgt_l = _tgt_r = _cur_l = _cur_r = 0.0f;
+  _tgt_l = _tgt_r = 0.0f;
   if (!_ok) {
     return;
   }
-  if (had_motion) {
-    _idle_since_ms = millis();
-  }
-  if (_detached) {
-    return;
-  }
-  apply_stop_hold();
 }
 
 void DriveServos::set_wheel_speeds(float left, float right) {
@@ -161,6 +196,9 @@ void DriveServos::set_wheel_speeds(float left, float right) {
 }
 
 void DriveServos::set_twist(float linear, float angular) {
+  if (hold_stop_active()) {
+    return;
+  }
   float left = linear - angular;
   float right = linear + angular;
   const float peak = fmaxf(fabsf(left), fabsf(right));
@@ -171,54 +209,71 @@ void DriveServos::set_twist(float linear, float angular) {
   set_targets(left, right);
 }
 
-void DriveServos::tick() {
+void DriveServos::begin_hold_stop(uint32_t duration_ms) {
+  _hold_until_ms = millis() + duration_ms;
+  _tgt_l = _tgt_r = 0.0f;
+  _neutral_since_ms = 0;
+  ensure_attached();
+}
+
+void DriveServos::cancel_hold_stop() {
+  _hold_until_ms = 0;
+}
+
+void DriveServos::tick_step(uint32_t now_ms) {
   if (!_ok) {
     return;
   }
 
-  const bool want_move =
-      (fabsf(_tgt_l) > MOVE_EPS || fabsf(_tgt_r) > MOVE_EPS || moving());
-  if (!want_move) {
-    if (!_detached) {
-      apply_stop_hold();
-      if (millis() - _idle_since_ms >= SERVO_IDLE_DETACH_MS) {
-        detach_idle();
-      }
+  if (_hold_until_ms != 0 && now_ms >= _hold_until_ms) {
+    _hold_until_ms = 0;
+  }
+
+  const bool hold = hold_stop_active();
+  const bool want_drive = !hold && (fabsf(_tgt_l) > MOVE_EPS || fabsf(_tgt_r) > MOVE_EPS);
+
+  uint16_t tgt_l = _stop_us_l;
+  uint16_t tgt_r = _stop_us_r;
+  if (want_drive) {
+    ensure_attached();
+    tgt_l = speed_to_us(_tgt_l, true);
+    tgt_r = speed_to_us(_tgt_r, false);
+  } else if (hold) {
+    ensure_attached();
+  }
+
+  _out_us_l = static_cast<uint16_t>(
+      slew_us_step(_out_us_l, tgt_l, _stop_us_l, _slew_us));
+  _out_us_r = static_cast<uint16_t>(
+      slew_us_step(_out_us_r, tgt_r, _stop_us_r, _slew_us));
+
+  write_outputs();
+
+  const bool stopped_cmd = !want_drive && !hold;
+  if (stopped_cmd && at_neutral_pulse()) {
+    if (_neutral_since_ms == 0) {
+      _neutral_since_ms = now_ms;
     }
+    if (!_detached && (now_ms - _neutral_since_ms) >= SERVO_IDLE_DETACH_MS) {
+      detach_idle();
+    }
+  } else {
+    _neutral_since_ms = 0;
+  }
+}
+
+void DriveServos::tick(uint32_t now_ms) {
+  if (!_ok) {
     return;
   }
-
-  ensure_attached();
-
-  const bool spinning =
-      (_tgt_l * _tgt_r < 0.0f) &&
-      (fabsf(_tgt_l) > MOVE_EPS || fabsf(_tgt_r) > MOVE_EPS);
-  const float max_step = spinning ? SPIN_STEP : MAX_STEP;
-
-  auto step_side = [&](float& cur, float tgt) {
-    float eff_tgt = tgt;
-    if (cur * eff_tgt < -MOVE_EPS * MOVE_EPS) {
-      eff_tgt = 0.0f;
-    }
-    const float step_lim =
-        (cur * eff_tgt < 0.0f && fabsf(cur) > MOVE_EPS) ? SPIN_STEP : max_step;
-    float delta = eff_tgt - cur;
-    if (delta > step_lim) delta = step_lim;
-    if (delta < -step_lim) delta = -step_lim;
-    cur += delta;
-  };
-
-  step_side(_cur_l, _tgt_l);
-  step_side(_cur_r, _tgt_r);
-
-  if (spinning) {
-    const float mag = fmaxf(fabsf(_cur_l), fabsf(_cur_r));
-    if (mag > MOVE_EPS) {
-      const float sign = (_tgt_r > 0.0f) ? 1.0f : -1.0f;
-      _cur_l = -sign * mag;
-      _cur_r = sign * mag;
-    }
+  if (now_ms == 0) {
+    now_ms = millis();
   }
-
-  apply_current();
+  if (_last_tick_ms == 0) {
+    _last_tick_ms = now_ms;
+  }
+  while (now_ms - _last_tick_ms >= SERVO_OUT_TICK_MS) {
+    _last_tick_ms += SERVO_OUT_TICK_MS;
+    tick_step(_last_tick_ms);
+  }
 }

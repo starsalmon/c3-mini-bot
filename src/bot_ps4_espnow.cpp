@@ -217,6 +217,26 @@ void bot_ps4_espnow_begin() {
 
 bool bot_ps4_manual_active() { return s_manual; }
 
+bool bot_ps4_straight_eligible(float* linear_out) {
+  const uint32_t now = millis();
+  if (!s_manual || !s_ctrl_ok) {
+    return false;
+  }
+  if (fleetPs4LinkFailsafe(now, s_last_pkt_ms, s_manual, s_ctrl_ok)) {
+    return false;
+  }
+  if (fabsf(fleetPs4AxisNorm(s_lx)) > 0.02f) {
+    return false;
+  }
+  if (fabsf(s_throttle_now) < 0.06f) {
+    return false;
+  }
+  if (linear_out) {
+    *linear_out = s_throttle_now;
+  }
+  return true;
+}
+
 void bot_ps4_link_status(BotPs4LinkStatus* out) {
   if (!out) {
     return;

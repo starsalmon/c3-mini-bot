@@ -41,6 +41,8 @@
 #include "ultrasonic.h"
 #include "oled_ssd1306.h"
 #include "bot_speaker.h"
+#include "heading_hold.h"
+#include "heading_hold_store.h"
 
 namespace {
 
@@ -82,6 +84,7 @@ bool stall_last_pub = false;
 uint32_t last_stall_pub_ms = 0;
 
 BotImuFeatures imu_features;
+HeadingHold heading_hold;
 
 rcl_publisher_t range_pub;
 rcl_publisher_t pan_pub;
@@ -124,27 +127,49 @@ void apply_drive() {
   const uint32_t now = millis();
   const BotPs4DriveOut ps4 = bot_ps4_espnow_poll(now);
   if (ps4.failsafe) {
+    heading_hold.release();
     drive.stop();
     return;
   }
+
+  float lin = 0.0f;
+  float ang = 0.0f;
+  bool have_drive = false;
+  bool straight_hold = false;
+
   if (ps4.override_ros) {
     drive.cancel_hold_stop();
-    float lin = ps4.linear_x;
-    if (lin < -0.02f && rear_tof.ok() && last_tof_m > 0.0f && last_tof_m < TOF_REAR_STOP_M) {
-      lin = 0.0f;
-    }
-    drive.set_twist(lin, ps4.angular_z);
-    return;
-  }
-  if (now - last_cmd_ms > CMD_TIMEOUT_MS) {
+    lin = ps4.linear_x;
+    ang = ps4.angular_z;
+    have_drive = true;
+    straight_hold = bot_ps4_straight_eligible(&lin);
+  } else if (now - last_cmd_ms <= CMD_TIMEOUT_MS) {
+    lin = last_lin;
+    ang = last_ang;
+    have_drive = true;
+    straight_hold =
+        (fabsf(last_ang) < 0.08f) && (fabsf(last_lin) >= 0.06f);
+  } else {
+    heading_hold.release();
     drive.stop();
     return;
   }
-  float lin = last_lin;
+
   if (lin < -0.02f && rear_tof.ok() && last_tof_m > 0.0f && last_tof_m < TOF_REAR_STOP_M) {
     lin = 0.0f;
+    straight_hold = false;
   }
-  drive.set_twist(lin, last_ang);
+
+  if (imu_ok && heading_hold.enabled() && heading_hold.ready() && straight_hold) {
+    if (!heading_hold.armed()) {
+      heading_hold.latch();
+    }
+    ang += heading_hold.correction(lin, ang);
+  } else {
+    heading_hold.release();
+  }
+
+  drive.set_twist(lin, ang);
 }
 
 void on_cmd(const void *msgin) {
@@ -569,6 +594,7 @@ void setup() {
 #if defined(ENABLE_OTA)
   bot_ota_begin();
   bot_servo_web_begin(drive);
+  bot_servo_web_set_heading(&heading_hold);
 #endif
   bot_ps4_espnow_begin();
 #else
@@ -620,6 +646,13 @@ void setup() {
     Serial.println("WARN: MPU6050 not found on I2C");
   } else {
     Serial.printf("MPU6050 OK (gyro Z sign %.0f)\n", (double)IMU_GYRO_Z_SIGN);
+    heading_hold.begin();
+    HeadingHoldStore::NvsSettings hdg_nvs;
+    if (HeadingHoldStore::load(&hdg_nvs)) {
+      HeadingHoldStore::apply(heading_hold, hdg_nvs);
+    }
+    Serial.printf("Heading hold: en=%d kp=%.3f (calibrating gyro bias…)\n",
+                  (int)heading_hold.enabled(), (double)heading_hold.settings().kp);
   }
   if (!rear_tof.begin()) {
     Serial.println("WARN: rear ToF not found");
@@ -761,6 +794,8 @@ void loop() {
     last_imu = now;
     ImuSample sample;
     if (imu.read(sample)) {
+      const bool stationary = !drive.moving() && fabsf(last_lin) < 0.05f && !bot_ps4_manual_active();
+      heading_hold.update(sample.gz, stationary, now);
       const bool cmd_active = (now - last_cmd_ms) <= CMD_TIMEOUT_MS;
       const bool motion_intent = BotImuFeatures::intent_from_cmd(last_lin, last_ang, cmd_active);
       imu_features.note_intent(motion_intent, now);

@@ -97,6 +97,8 @@ Roby firmware (`c3_mini_wifi_ota`) includes the ESP-NOW receiver on the **home W
 | **Triangle / Cross / L1 / R1** | Jazz-only features (balance, pivot, horns) — **no effect** on Roby |
 | Link loss **300 ms** | Wheels stop; ROS `cmd_vel` resumes |
 
+**Heading hold (MPU6050 on I2C GPIO8/9):** When PS4 manual or ROS `cmd_vel` is driving straight (steer in deadzone, throttle above ~6%), firmware latches yaw and adds a PI+PD correction on wheel differential. Gyro bias is learned at boot while still (~2.5 s). Tune **Kp/Ki/Kd** and enable on the cal web page; NVS namespace `hdg_hold`. Reverse driving flips correction sign.
+
 Ack feedback on the pad (via bridge): light bar **blue** = speed LOW, **green** = speed HIGH; short rumble on Circle/Square.
 
 Roby mount may need opposite stick X sense vs Jazz; defaults in `bot_pins.h` (`BOT_PS4_STEER_SIGN`, `BOT_PS4_PAN_SIGN`, both **-1.0**). Override in `platformio_private.ini`, e.g. `-DBOT_PS4_STEER_SIGN=1.0f`.

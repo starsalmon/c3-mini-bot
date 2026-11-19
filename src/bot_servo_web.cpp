@@ -13,11 +13,14 @@
 #include "bot_ps4_espnow.h"
 #include "drive_cal_store.h"
 #include "drive_servos.h"
+#include "heading_hold.h"
+#include "heading_hold_store.h"
 
 namespace {
 
 WebServer server(80);
 DriveServos* s_drive = nullptr;
+HeadingHold* s_hdg = nullptr;
 bool s_routes_registered = false;
 bool s_listening = false;
 float s_pan_deg = 90.0f;
@@ -81,7 +84,20 @@ details summary{cursor:pointer;padding:6px 0}
   <div class="btns"><button type="button" onclick="adj('off',-10)">−10 µs</button><button type="button" onclick="adj('off',10)">+10 µs</button></div>
 </div>
 <button class="big" type="button" onclick="post('/api/hold')">Hold wheels stopped (8 s)</button>
-<button class="big" id="saveBtn" type="button" onclick="save()">Save to flash (NVS)</button>
+<button class="big" id="saveBtn" type="button" onclick="save()">Save wheel trim to flash</button>
+<div class="card">
+  <h2>Heading hold (MPU6050)</h2>
+  <p class="sub" style="margin:0 0 8px">Straight driving: keeps yaw when steer stick is centred. Calibrates gyro bias at boot while still.</p>
+  <div class="row"><span class="lbl">Enabled</span><span class="val" id="hdg_en">—</span></div>
+  <div class="btns"><button type="button" onclick="hdgEn(1)">On</button><button type="button" onclick="hdgEn(0)">Off</button></div>
+  <div class="row"><span class="lbl">Gain Kp / Ki / Kd</span><span class="val" id="hdg_g">—</span></div>
+  <div class="btns">
+    <button type="button" onclick="hdgAdj('kp',-0.002)">Kp−</button><button type="button" onclick="hdgAdj('kp',0.002)">Kp+</button>
+    <button type="button" onclick="hdgAdj('kd',-0.01)">Kd−</button><button type="button" onclick="hdgAdj('kd',0.01)">Kd+</button>
+  </div>
+  <button class="big" type="button" onclick="hdgSave()">Save heading-hold gains</button>
+  <div class="row" style="margin-top:8px"><span class="lbl">Yaw / target / active</span><span class="val" id="hdg_st">—</span></div>
+</div>
 <div class="card">
   <h2>Wireless update &amp; PS4</h2>
   <div id="sys"></div>
@@ -112,6 +128,10 @@ async function refresh(){
   if(j.ps4_speed_low)ps4+=', speed LOW';
   if(j.ps4_steer_low)ps4+=', steer LOW';
   document.getElementById('pan').textContent=(j.pan_deg!=null)?(Number(j.pan_deg).toFixed(1)+'°'):'—';
+  document.getElementById('hdg_en').textContent=j.hdg_en?'ON':'OFF';
+  document.getElementById('hdg_g').textContent=j.hdg_kp.toFixed(3)+' / '+j.hdg_ki.toFixed(3)+' / '+j.hdg_kd.toFixed(2);
+  document.getElementById('hdg_st').textContent=
+    (j.hdg_ready?'ready':'cal…')+' · yaw '+j.hdg_yaw.toFixed(0)+'° → '+j.hdg_tgt.toFixed(0)+'°'+(j.hdg_armed?' · HOLD':'');
   document.getElementById('sys').innerHTML=
     '<div>Firmware <b>'+j.fw+'</b> · built '+j.built+'</div>'+
     '<div>'+ota+(j.ota_busy?', <span class="warn">OTA busy</span>':'')+'</div>'+
@@ -124,6 +144,9 @@ async function n(w,d){await fetch('/api/nudge?w='+w+'&d='+d,{method:'POST'});ref
 async function adj(k,d){await fetch('/api/adj?k='+k+'&d='+d,{method:'POST'});refresh();}
 async function post(p){await fetch(p,{method:'POST'});refresh();}
 async function save(){await fetch('/api/save',{method:'POST'});refresh();}
+async function hdgEn(v){await fetch('/api/hdg?en='+v,{method:'POST'});refresh();}
+async function hdgAdj(k,d){await fetch('/api/hdg?k='+k+'&d='+d,{method:'POST'});refresh();}
+async function hdgSave(){await fetch('/api/hdg_save',{method:'POST'});refresh();}
 refresh();setInterval(refresh,900);
 </script></body></html>)html";
 
@@ -154,7 +177,20 @@ void send_state() {
     pkt_age = 999999;
   }
 
-  char buf[640];
+  float hdg_yaw = 0, hdg_tgt = 0, hdg_kp = 0, hdg_ki = 0, hdg_kd = 0;
+  bool hdg_en = false, hdg_ready = false, hdg_armed = false;
+  if (s_hdg) {
+    hdg_yaw = s_hdg->yaw_deg();
+    hdg_tgt = s_hdg->target_deg();
+    hdg_kp = s_hdg->settings().kp;
+    hdg_ki = s_hdg->settings().ki;
+    hdg_kd = s_hdg->settings().kd;
+    hdg_en = s_hdg->enabled();
+    hdg_ready = s_hdg->ready();
+    hdg_armed = s_hdg->armed();
+  }
+
+  char buf[900];
   snprintf(buf, sizeof(buf),
            "{\"l\":%u,\"r\":%u,\"slew\":%u,\"off\":%u,\"hold\":%s,"
            "\"fw\":\"%s\",\"built\":\"%s\",\"ota_ok\":%s,\"ota_busy\":%s,"
@@ -163,7 +199,9 @@ void send_state() {
            "\"nvs_magic_hex\":%lu,"
            "\"ps4_ready\":%s,\"ps4_link\":%s,\"ps4_manual\":%s,\"ps4_ctrl\":%s,"
            "\"ps4_pkt_age_ms\":%lu,\"ps4_speed_low\":%s,\"ps4_steer_low\":%s,\"ps4_ch\":%u,"
-           "\"pan_deg\":%.1f}",
+           "\"pan_deg\":%.1f,"
+           "\"hdg_en\":%s,\"hdg_ready\":%s,\"hdg_armed\":%s,"
+           "\"hdg_yaw\":%.1f,\"hdg_tgt\":%.1f,\"hdg_kp\":%.4f,\"hdg_ki\":%.4f,\"hdg_kd\":%.3f}",
            s_drive->stop_us_left(), s_drive->stop_us_right(), s_drive->slew_us_per_10ms(),
            s_drive->max_offset_us(), s_drive->hold_stop_active() ? "true" : "false", BOT_FW_GIT_HASH,
            BOT_FW_BUILD_TIME, ota.ota_listening ? "true" : "false", ota.ota_busy ? "true" : "false",
@@ -172,7 +210,9 @@ void send_state() {
            ps4.espnow_ready ? "true" : "false", ps4.linked ? "true" : "false",
            ps4.manual ? "true" : "false", ps4.ctrl_ok ? "true" : "false", (unsigned long)pkt_age,
            ps4.speed_low ? "true" : "false", ps4.steer_low ? "true" : "false", (unsigned)ps4.channel,
-           static_cast<double>(s_pan_deg));
+           static_cast<double>(s_pan_deg), hdg_en ? "true" : "false", hdg_ready ? "true" : "false",
+           hdg_armed ? "true" : "false", static_cast<double>(hdg_yaw), static_cast<double>(hdg_tgt),
+           static_cast<double>(hdg_kp), static_cast<double>(hdg_ki), static_cast<double>(hdg_kd));
   server.send(200, "application/json", buf);
 }
 
@@ -242,6 +282,41 @@ void handle_hold() {
   server.send(200, "text/plain", "ok");
 }
 
+void handle_hdg() {
+  if (!s_hdg) {
+    server.send(500, "text/plain", "no imu");
+    return;
+  }
+  HeadingHold::Settings cfg = s_hdg->settings();
+  if (server.hasArg("en")) {
+    cfg.enabled = server.arg("en").toInt() != 0;
+    s_hdg->apply_settings(cfg);
+  }
+  if (server.hasArg("k") && server.hasArg("d")) {
+    const String k = server.arg("k");
+    const float d = server.arg("d").toFloat();
+    if (k == "kp") {
+      cfg.kp = constrain(cfg.kp + d, 0.001f, 0.08f);
+    } else if (k == "ki") {
+      cfg.ki = constrain(cfg.ki + d, 0.0f, 0.02f);
+    } else if (k == "kd") {
+      cfg.kd = constrain(cfg.kd + d, 0.0f, 0.5f);
+    }
+    s_hdg->apply_settings(cfg);
+  }
+  server.send(200, "text/plain", "ok");
+}
+
+void handle_hdg_save() {
+  if (!s_hdg) {
+    server.send(500, "text/plain", "no imu");
+    return;
+  }
+  const HeadingHoldStore::NvsSettings s = HeadingHoldStore::from_heading_hold(*s_hdg);
+  const bool ok = HeadingHoldStore::save(s);
+  server.send(ok ? 200 : 500, "text/plain", ok ? "saved" : "fail");
+}
+
 void handle_save() {
   if (!s_drive) {
     server.send(500, "text/plain", "no drive");
@@ -268,6 +343,8 @@ void register_routes() {
   server.on("/api/hold", HTTP_POST, handle_hold);
   server.on("/api/save", HTTP_POST, handle_save);
   server.on("/api/nvs", HTTP_GET, handle_nvs);
+  server.on("/api/hdg", HTTP_POST, handle_hdg);
+  server.on("/api/hdg_save", HTTP_POST, handle_hdg_save);
   s_routes_registered = true;
 }
 
@@ -335,5 +412,7 @@ void bot_servo_web_session_reset() {
 }
 
 void bot_servo_web_set_pan_deg(float deg) { s_pan_deg = deg; }
+
+void bot_servo_web_set_heading(HeadingHold* hdg) { s_hdg = hdg; }
 
 #endif

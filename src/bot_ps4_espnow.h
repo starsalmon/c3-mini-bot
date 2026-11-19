@@ -30,6 +30,7 @@ bool bot_ps4_manual_active();
 bool bot_ps4_controls_pan();
 float bot_ps4_pan_deg();
 void bot_ps4_pan_seed(float deg);
+bool bot_ps4_straight_eligible(float* linear_out);
 void bot_ps4_link_status(BotPs4LinkStatus* out);
 
 #else
@@ -43,6 +44,7 @@ inline bool bot_ps4_manual_active() { return false; }
 inline bool bot_ps4_controls_pan() { return false; }
 inline float bot_ps4_pan_deg() { return 90.0f; }
 inline void bot_ps4_pan_seed(float) {}
+inline bool bot_ps4_straight_eligible(float*) { return false; }
 inline void bot_ps4_link_status(BotPs4LinkStatus* out) {
   if (out) {
     *out = {};

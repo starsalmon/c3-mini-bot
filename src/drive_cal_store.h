@@ -20,6 +20,28 @@ struct Settings {
 
 bool load(Settings* out);
 bool save(const Settings& in);
+
+/** Read NVS namespace for diagnostics (no magic check). */
+struct NvsSnapshot {
+  bool open_ok = false;
+  uint32_t magic = 0;
+  uint16_t stop_l = 0;
+  uint16_t stop_r = 0;
+  uint16_t slew = 0;
+  uint16_t maxoff = 0;
+};
+bool read_nvs_snapshot(NvsSnapshot* out);
+
+struct BootCalStatus {
+  bool load_ok = false;
+  bool nvs_open_fail = false;
+  uint32_t magic_read = 0;
+  Settings loaded{};
+  bool servos_attached = false;
+};
+void set_boot_cal_status(const BootCalStatus& st);
+const BootCalStatus& boot_cal_status();
+
 void apply(DriveServos& drive, const Settings& s);
 Settings from_drive(const DriveServos& drive);
 

@@ -7,6 +7,8 @@
 
 #include <stdio.h>
 
+#include "bot_fw_version.h"
+#include "bot_ota.h"
 #include "bot_pins.h"
 #include "drive_cal_store.h"
 #include "drive_servos.h"
@@ -31,6 +33,7 @@ button{min-width:48px;min-height:44px;margin:4px;font-size:1rem}
 .val{font-size:1.4rem;font-weight:bold}
 </style></head><body>
 <h1>FS90R neutral trim</h1>
+<p id="fw"></p>
 <p>Hold stop, nudge &micro;s until no creep, then Save. cmd_vel cancels hold.</p>
 <div class="row"><b>Left</b> <span class="val" id="l">—</span> &micro;s
 <br>
@@ -49,9 +52,10 @@ button{min-width:48px;min-height:44px;margin:4px;font-size:1rem}
 <p id="st"></p>
 <script>
 async function refresh(){const j=await (await fetch('/api/state')).json();
+document.getElementById('fw').textContent='fw '+j.fw+' built '+j.built;
 document.getElementById('l').textContent=j.l;document.getElementById('r').textContent=j.r;
 document.getElementById('slew').textContent=j.slew;document.getElementById('off').textContent=j.off;
-document.getElementById('st').textContent=j.hold?'Hold active':'Ready';}
+document.getElementById('st').textContent=(j.hold?'Hold active':'Ready')+' OTA='+(j.ota_ok?'up':'down');
 async function n(w,d){await fetch('/api/nudge?w='+w+'&d='+d,{method:'POST'});refresh();}
 async function adj(k,d){await fetch('/api/adj?k='+k+'&d='+d,{method:'POST'});refresh();}
 async function post(p){await fetch(p,{method:'POST'});refresh();}
@@ -63,11 +67,31 @@ void send_state() {
     server.send(500, "application/json", "{}");
     return;
   }
-  char buf[160];
+  const BotOtaStatus ota = bot_ota_status();
+  const DriveCalStore::BootCalStatus& boot = DriveCalStore::boot_cal_status();
+  char buf[320];
   snprintf(buf, sizeof(buf),
-           "{\"l\":%u,\"r\":%u,\"slew\":%u,\"off\":%u,\"hold\":%s}",
+           "{\"l\":%u,\"r\":%u,\"slew\":%u,\"off\":%u,\"hold\":%s,"
+           "\"fw\":\"%s\",\"built\":\"%s\",\"ota_ok\":%s,\"ota_busy\":%s,"
+           "\"cal_boot\":%s,\"cal_magic\":%lu}",
            s_drive->stop_us_left(), s_drive->stop_us_right(), s_drive->slew_us_per_10ms(),
-           s_drive->max_offset_us(), s_drive->hold_stop_active() ? "true" : "false");
+           s_drive->max_offset_us(), s_drive->hold_stop_active() ? "true" : "false", BOT_FW_GIT_HASH,
+           BOT_FW_BUILD_TIME, ota.ota_listening ? "true" : "false", ota.ota_busy ? "true" : "false",
+           boot.load_ok ? "true" : "false", (unsigned long)boot.magic_read);
+  server.send(200, "application/json", buf);
+}
+
+void handle_nvs() {
+  DriveCalStore::NvsSnapshot nvs{};
+  const bool snap = DriveCalStore::read_nvs_snapshot(&nvs);
+  const DriveCalStore::BootCalStatus& boot = DriveCalStore::boot_cal_status();
+  char buf[280];
+  snprintf(buf, sizeof(buf),
+           "{\"nvs_open\":%s,\"magic\":%lu,\"stop_l\":%u,\"stop_r\":%u,\"slew\":%u,\"maxoff\":%u,"
+           "\"boot_load_ok\":%s,\"boot_magic\":%lu,\"servos_attached\":%s}",
+           snap && nvs.open_ok ? "true" : "false", (unsigned long)nvs.magic, nvs.stop_l, nvs.stop_r,
+           nvs.slew, nvs.maxoff, boot.load_ok ? "true" : "false", (unsigned long)boot.magic_read,
+           boot.servos_attached ? "true" : "false");
   server.send(200, "application/json", buf);
 }
 
@@ -130,9 +154,11 @@ void handle_save() {
   }
   const DriveCalStore::Settings s = DriveCalStore::from_drive(*s_drive);
   if (DriveCalStore::save(s)) {
-    server.send(200, "text/plain", "saved");
+    server.send(200, "application/json",
+                 "{\"ok\":true,\"l\":" + String(s.stop_us_left) + ",\"r\":" +
+                     String(s.stop_us_right) + "}");
   } else {
-    server.send(500, "text/plain", "save failed");
+    server.send(500, "application/json", "{\"ok\":false}");
   }
 }
 
@@ -146,6 +172,7 @@ void register_routes() {
   server.on("/api/adj", HTTP_POST, handle_adj);
   server.on("/api/hold", HTTP_POST, handle_hold);
   server.on("/api/save", HTTP_POST, handle_save);
+  server.on("/api/nvs", HTTP_GET, handle_nvs);
   s_routes_registered = true;
 }
 

@@ -8,10 +8,34 @@
 namespace {
 
 constexpr const char* kNs = "drv_cal";
+DriveCalStore::BootCalStatus s_boot{};
 
 }  // namespace
 
 namespace DriveCalStore {
+
+void set_boot_cal_status(const BootCalStatus& st) { s_boot = st; }
+
+const BootCalStatus& boot_cal_status() { return s_boot; }
+
+bool read_nvs_snapshot(NvsSnapshot* out) {
+  if (!out) {
+    return false;
+  }
+  *out = NvsSnapshot{};
+  Preferences prefs;
+  if (!prefs.begin(kNs, true)) {
+    return false;
+  }
+  out->open_ok = true;
+  out->magic = prefs.getUInt("magic", 0);
+  out->stop_l = prefs.getUShort("stop_l", 0);
+  out->stop_r = prefs.getUShort("stop_r", 0);
+  out->slew = prefs.getUShort("slew", 0);
+  out->maxoff = prefs.getUShort("maxoff", 0);
+  prefs.end();
+  return true;
+}
 
 bool load(Settings* out) {
   if (!out) {
@@ -51,7 +75,13 @@ bool save(const Settings& in) {
   prefs.putUShort("slew", in.slew_us_per_10ms);
   prefs.putUShort("maxoff", in.max_offset_us);
   prefs.end();
-  return true;
+  Settings verify;
+  if (!load(&verify)) {
+    return false;
+  }
+  return verify.stop_us_left == in.stop_us_left && verify.stop_us_right == in.stop_us_right &&
+         verify.slew_us_per_10ms == in.slew_us_per_10ms &&
+         verify.max_offset_us == in.max_offset_us;
 }
 
 void apply(DriveServos& drive, const Settings& s) {

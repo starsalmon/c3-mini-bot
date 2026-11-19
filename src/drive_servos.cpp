@@ -35,10 +35,7 @@ bool DriveServos::begin(int left_pin, int right_pin) {
   _right_pin = right_pin;
   _trim_left = SERVO_TRIM_LEFT;
   _trim_right = SERVO_TRIM_RIGHT;
-  _stop_us_l = SERVO_STOP_US_LEFT;
-  _stop_us_r = SERVO_STOP_US_RIGHT;
-  _slew_us = SERVO_SLEW_US_PER_10MS;
-  _max_offset_us = SERVO_MAX_OFFSET_US;
+  // Neutral/motion limits are set before begin() (NVS cal) — do not clobber here.
   servo_hw_init();
   servo_hw_prepare(_left);
   servo_hw_prepare(_right);

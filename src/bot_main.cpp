@@ -584,14 +584,32 @@ void setup() {
   } else {
     Serial.println("WARN: IR TX PWM init failed");
   }
-  if (!drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN)) {
-    Serial.println("WARN: wheel servos not attached");
-  } else {
+  {
+    DriveCalStore::BootCalStatus boot{};
+    DriveCalStore::NvsSnapshot nvs{};
+    if (!DriveCalStore::read_nvs_snapshot(&nvs)) {
+      boot.nvs_open_fail = true;
+    } else {
+      boot.magic_read = nvs.magic;
+    }
     DriveCalStore::Settings cal;
-    if (DriveCalStore::load(&cal)) {
+    boot.load_ok = DriveCalStore::load(&cal);
+    if (boot.load_ok) {
+      boot.loaded = cal;
       DriveCalStore::apply(drive, cal);
-      Serial.printf("Drive cal NVS L=%u R=%u slew=%u off=%u\n", cal.stop_us_left,
-                    cal.stop_us_right, cal.slew_us_per_10ms, cal.max_offset_us);
+    }
+    const bool attached = drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN);
+    boot.servos_attached = attached;
+    if (boot.load_ok) {
+      DriveCalStore::apply(drive, cal);
+    }
+    DriveCalStore::set_boot_cal_status(boot);
+    Serial.printf(
+        "Drive cal: nvs_open=%d magic=0x%08lx load=%d attach=%d L=%u R=%u\n",
+        (int)nvs.open_ok, (unsigned long)boot.magic_read, (int)boot.load_ok, (int)attached,
+        drive.stop_us_left(), drive.stop_us_right());
+    if (!attached) {
+      Serial.println("WARN: wheel servos not attached");
     }
     drive.stop();
   }
@@ -636,6 +654,8 @@ void loop() {
   static uint32_t last_ir = 0;
   static uint32_t last_bat = 0;
   const uint32_t now = millis();
+
+  bot_ps4_espnow_tick(now);
 
 #if SPEAKER_ENABLED
   speaker.tick(now);

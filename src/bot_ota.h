@@ -7,6 +7,13 @@ void bot_ota_prepare_wifi_events();
 void bot_ota_begin();
 void bot_ota_tick();
 bool bot_ota_busy();
+
+struct BotOtaStatus {
+  bool wifi_connected = false;
+  bool ota_listening = false;
+  bool ota_busy = false;
+};
+BotOtaStatus bot_ota_status();
 /** Call when micro-ROS tears down — OTA TCP must re-bind. */
 void bot_ota_session_reset();
 /** Block up to ms but keep servicing OTA (and servo web when built). */

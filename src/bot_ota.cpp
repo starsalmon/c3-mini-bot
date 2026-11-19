@@ -19,6 +19,12 @@ static void bot_servo_web_on_wifi_event(WiFiEvent_t) {}
 static void bot_servo_web_session_reset() {}
 #endif
 
+#if defined(ENABLE_PS4_ESPNOW)
+void bot_ps4_espnow_tick(uint32_t now_ms);
+#else
+static void bot_ps4_espnow_tick(uint32_t) {}
+#endif
+
 namespace {
 
 bool s_ota_ok = false;
@@ -32,9 +38,21 @@ void service_idle() {
   yield();
 }
 
+void stop_ota_server() {
+  if (s_ota_started) {
+    ArduinoOTA.end();
+    s_ota_started = false;
+  }
+  s_ota_ok = false;
+}
+
 void start_ota_server() {
   if (WiFi.status() != WL_CONNECTED) {
-    s_ota_ok = false;
+    stop_ota_server();
+    return;
+  }
+
+  if (s_ota_started && s_ota_ok) {
     return;
   }
 
@@ -75,14 +93,14 @@ void start_ota_server() {
 void on_wifi_event(WiFiEvent_t event) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      s_ota_ok = false;
-      s_ota_started = false;
+      stop_ota_server();
       bot_servo_web_on_wifi_event(event);
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-      s_ota_ok = false;
-      s_ota_started = false;
       bot_servo_web_on_wifi_event(event);
+      if (WiFi.status() == WL_CONNECTED && !s_ota_ok) {
+        start_ota_server();
+      }
       break;
     default:
       break;
@@ -99,8 +117,10 @@ void ensure_wifi_events() {
 
 void ota_task_fn(void*) {
   for (;;) {
+    const uint32_t now = millis();
     bot_ota_tick();
     bot_servo_web_tick();
+    bot_ps4_espnow_tick(now);
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
@@ -128,8 +148,7 @@ void bot_ota_begin() {
 
 void bot_ota_tick() {
   if (WiFi.status() != WL_CONNECTED) {
-    s_ota_ok = false;
-    s_ota_started = false;
+    stop_ota_server();
     return;
   }
   if (!s_ota_ok) {
@@ -141,12 +160,19 @@ void bot_ota_tick() {
 }
 
 void bot_ota_session_reset() {
-  s_ota_ok = false;
-  s_ota_started = false;
+  stop_ota_server();
   if (WiFi.status() == WL_CONNECTED) {
     start_ota_server();
   }
   bot_servo_web_session_reset();
+}
+
+BotOtaStatus bot_ota_status() {
+  BotOtaStatus st;
+  st.wifi_connected = WiFi.status() == WL_CONNECTED;
+  st.ota_listening = s_ota_ok && s_ota_started;
+  st.ota_busy = s_ota_busy;
+  return st;
 }
 
 void bot_ota_delay(uint32_t ms) {
@@ -173,6 +199,10 @@ void bot_ota_delay(uint32_t ms) {
 }
 bool bot_ota_busy() {
   return false;
+}
+
+BotOtaStatus bot_ota_status() {
+  return {};
 }
 
 #endif

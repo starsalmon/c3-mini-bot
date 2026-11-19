@@ -93,3 +93,7 @@ Roby firmware (`c3_mini_wifi_ota`) includes the ESP-NOW receiver on the **home W
 | Link loss **300 ms** | Wheels stop; ROS `cmd_vel` resumes |
 
 Stop the bot before OTA. After OTA reboot, servo cal HTTP should come up automatically (Wi‑Fi events register before connect).
+
+**Firmware identity (no USB serial):** cal page and `GET /api/state` include `"fw":"…"` and `"built":"…"`; `GET /api/nvs` shows raw `drv_cal` NVS. Check `"ota_ok":true` before OTA upload.
+
+**USB flash when OTA is stuck:** `pio run -e c3_mini_wifi_ota_usb -t upload` (hold BOOT if needed).

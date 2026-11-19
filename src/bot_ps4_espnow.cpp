@@ -42,6 +42,8 @@ static int8_t s_lx = 0;
 static uint16_t s_buttons_prev = 0;
 static bool s_opt_prev = false;
 static volatile uint32_t s_pending_ack_seq = 0;
+static BotPs4DriveOut s_drive_out;
+static uint32_t s_ack_tx = 0;
 
 static bool macEq(const uint8_t* a, const uint8_t* b) { return memcmp(a, b, 6) == 0; }
 
@@ -51,7 +53,9 @@ static void sendAck(uint32_t seq) {
   ack.seq = seq;
   WiFi.macAddress(ack.mac);
   fleetPs4AckSeal(ack);
-  esp_now_send(kBridgeMac, reinterpret_cast<uint8_t*>(&ack), sizeof(ack));
+  if (esp_now_send(kBridgeMac, reinterpret_cast<uint8_t*>(&ack), sizeof(ack)) == ESP_OK) {
+    s_ack_tx++;
+  }
 }
 
 static void IRAM_ATTR onEspNowRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
@@ -119,7 +123,7 @@ void bot_ps4_espnow_begin() {
 
 bool bot_ps4_manual_active() { return s_manual; }
 
-BotPs4DriveOut bot_ps4_espnow_poll(uint32_t now_ms) {
+void bot_ps4_espnow_tick(uint32_t now_ms) {
   BotPs4DriveOut out{};
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -127,10 +131,12 @@ BotPs4DriveOut bot_ps4_espnow_poll(uint32_t now_ms) {
       esp_now_del_peer(kBridgeMac);
       s_peer_ch = 0;
     }
-    return out;
+    s_drive_out = out;
+    return;
   }
   if (!ensurePeer()) {
-    return out;
+    s_drive_out = out;
+    return;
   }
 
   FleetPs4TxPkt pkt;
@@ -181,7 +187,12 @@ BotPs4DriveOut bot_ps4_espnow_poll(uint32_t now_ms) {
     out.override_ros = false;
   }
 
-  return out;
+  s_drive_out = out;
+}
+
+BotPs4DriveOut bot_ps4_espnow_poll(uint32_t now_ms) {
+  (void)now_ms;
+  return s_drive_out;
 }
 
 #endif

@@ -6,9 +6,9 @@
 #include <WiFi.h>
 #include <esp_now.h>
 
-#include <math.h>
 #include <string.h>
 
+#include "fleet_ps4_drive.h"
 #include "fleet_ps4_pkt.h"
 
 #ifndef BOT_PS4_MAX_LIN
@@ -17,10 +17,6 @@
 
 #ifndef BOT_PS4_MAX_ANG
 #define BOT_PS4_MAX_ANG 0.42f
-#endif
-
-#ifndef BOT_PS4_STEER_EXPO
-#define BOT_PS4_STEER_EXPO 0.55f
 #endif
 
 static const uint8_t kBridgeMac[6] = {FLEET_PS4_BRIDGE_MAC};
@@ -36,13 +32,19 @@ static uint8_t s_peer_ch = 0;
 static bool s_espnow_on = false;
 static bool s_manual = false;
 static bool s_ctrl_ok = false;
+static bool s_speed_low = true;
+static bool s_steer_low = false;
+static bool s_pending_rumble = false;
 static uint32_t s_last_pkt_ms = 0;
-static int8_t s_ly = 0;
+static uint32_t s_last_edge_ms = 0;
 static int8_t s_lx = 0;
+static uint8_t s_l2 = 0;
+static uint8_t s_r2 = 0;
 static uint16_t s_buttons_prev = 0;
 static bool s_opt_prev = false;
 static volatile uint32_t s_pending_ack_seq = 0;
 static BotPs4DriveOut s_drive_out;
+static float s_throttle_now = 0.0f;
 static uint32_t s_ack_tx = 0;
 
 static bool macEq(const uint8_t* a, const uint8_t* b) { return memcmp(a, b, 6) == 0; }
@@ -52,6 +54,17 @@ static void sendAck(uint32_t seq) {
   ack.channel = (uint8_t)WiFi.channel();
   ack.seq = seq;
   WiFi.macAddress(ack.mac);
+  ack.feedback = 0;
+  if (s_speed_low) {
+    ack.feedback |= FLEET_PS4_ACK_FB_SPEED_LOW;
+  }
+  if (s_steer_low) {
+    ack.feedback |= FLEET_PS4_ACK_FB_STEER_LOW;
+  }
+  if (s_pending_rumble) {
+    ack.feedback |= FLEET_PS4_ACK_FB_RUMBLE;
+    s_pending_rumble = false;
+  }
   fleetPs4AckSeal(ack);
   if (esp_now_send(kBridgeMac, reinterpret_cast<uint8_t*>(&ack), sizeof(ack)) == ESP_OK) {
     s_ack_tx++;
@@ -109,19 +122,43 @@ static bool ensurePeer() {
   return true;
 }
 
-static float steerExpo(int8_t lx) {
-  const float x = fleetPs4AxisNorm(lx);
-  const float expo = BOT_PS4_STEER_EXPO;
-  const float y = x * (1.0f - expo) + x * x * x * expo;
-  return y * BOT_PS4_MAX_ANG;
+static bool ps4DebouncedEdge(uint32_t now_ms) {
+  if ((uint32_t)(now_ms - s_last_edge_ms) < 300) {
+    return false;
+  }
+  s_last_edge_ms = now_ms;
+  return true;
 }
+
+static float effectiveMaxThrottle() { return s_speed_low ? BOT_PS4_MAX_LIN * 0.5f : BOT_PS4_MAX_LIN; }
+
+static float effectiveMaxSteer() { return s_steer_low ? BOT_PS4_MAX_ANG * 0.5f : BOT_PS4_MAX_ANG; }
 
 void bot_ps4_espnow_begin() {
   s_manual = false;
   s_last_pkt_ms = 0;
+  s_throttle_now = 0.0f;
+  s_speed_low = true;
+  s_steer_low = false;
 }
 
 bool bot_ps4_manual_active() { return s_manual; }
+
+void bot_ps4_link_status(BotPs4LinkStatus* out) {
+  if (!out) {
+    return;
+  }
+  const uint32_t now = millis();
+  out->espnow_ready = s_espnow_on && s_peer_ch != 0;
+  out->linked = s_last_pkt_ms != 0 && (uint32_t)(now - s_last_pkt_ms) < 2000;
+  out->manual = s_manual;
+  out->ctrl_ok = s_ctrl_ok;
+  out->speed_low = s_speed_low;
+  out->steer_low = s_steer_low;
+  out->channel = s_peer_ch;
+  out->last_pkt_age_ms = s_last_pkt_ms ? (uint32_t)(now - s_last_pkt_ms) : UINT32_MAX;
+  out->ack_tx = s_ack_tx;
+}
 
 void bot_ps4_espnow_tick(uint32_t now_ms) {
   BotPs4DriveOut out{};
@@ -131,6 +168,7 @@ void bot_ps4_espnow_tick(uint32_t now_ms) {
       esp_now_del_peer(kBridgeMac);
       s_peer_ch = 0;
     }
+    s_throttle_now = 0.0f;
     s_drive_out = out;
     return;
   }
@@ -158,33 +196,53 @@ void bot_ps4_espnow_tick(uint32_t now_ms) {
   if (got) {
     s_last_pkt_ms = now_ms;
     s_ctrl_ok = (pkt.flags & FLEET_PS4_FLAG_CTRL_OK) != 0;
-    s_ly = pkt.ly;
     s_lx = pkt.lx;
+    s_l2 = pkt.l2;
+    s_r2 = pkt.r2;
 
     const uint16_t edge = (uint16_t)(pkt.buttons & ~s_buttons_prev);
     s_buttons_prev = pkt.buttons;
 
-    if ((edge & FLEET_PS4_BTN_OPTIONS) != 0) {
+    const bool opt_now = (pkt.buttons & FLEET_PS4_BTN_OPTIONS) != 0;
+    if (opt_now && !s_opt_prev) {
       s_manual = !s_manual;
       Serial.printf("PS4: manual %s\n", s_manual ? "ON" : "OFF");
     }
-    const bool opt_now = (pkt.buttons & FLEET_PS4_BTN_OPTIONS) != 0;
     s_opt_prev = opt_now;
+
+    if ((edge & FLEET_PS4_BTN_SQUARE) && ps4DebouncedEdge(now_ms)) {
+      s_steer_low = !s_steer_low;
+      s_pending_rumble = true;
+      Serial.printf("PS4: steer mode %s\n", s_steer_low ? "LOW" : "HIGH");
+    }
+    if ((edge & FLEET_PS4_BTN_CIRCLE) && ps4DebouncedEdge(now_ms)) {
+      s_speed_low = !s_speed_low;
+      s_pending_rumble = true;
+      Serial.printf("PS4: speed mode %s\n", s_speed_low ? "LOW" : "HIGH");
+    }
   }
 
-  const bool link_failsafe =
-      fleetPs4LinkFailsafe(now_ms, s_last_pkt_ms, s_manual, s_ctrl_ok);
+  const bool ctrl_lost = s_manual && !s_ctrl_ok;
+  const bool link_failsafe = fleetPs4LinkFailsafe(now_ms, s_last_pkt_ms, s_manual, s_ctrl_ok);
 
-  if (s_manual && s_ctrl_ok && !link_failsafe) {
-    const float fwd = -fleetPs4AxisNorm(s_ly);
-    const float lin = fwd * BOT_PS4_MAX_LIN;
-    const float ang = steerExpo(s_lx);
+  if (s_manual && !ctrl_lost && !link_failsafe) {
+    const auto sp = fleetPs4ScaleManual(s_l2, s_r2, s_lx, effectiveMaxThrottle(), effectiveMaxSteer(),
+                                        s_throttle_now);
+    s_throttle_now = sp.throttle;
     out.override_ros = true;
-    out.linear_x = lin;
-    out.angular_z = ang;
+    out.linear_x = sp.throttle;
+    out.angular_z = sp.steering;
+  } else if (s_manual && ctrl_lost) {
+    s_throttle_now = 0.0f;
+    out.override_ros = true;
+    out.linear_x = 0.0f;
+    out.angular_z = 0.0f;
   } else if (s_manual && link_failsafe) {
+    s_throttle_now = 0.0f;
     out.failsafe = true;
     out.override_ros = false;
+  } else {
+    s_throttle_now = 0.0f;
   }
 
   s_drive_out = out;

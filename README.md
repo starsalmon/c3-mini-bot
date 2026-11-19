@@ -84,16 +84,22 @@ pio run -e ps4_bridge_fleet -t upload
 
 Roby firmware (`c3_mini_wifi_ota`) includes the ESP-NOW receiver on the **home Wi‑Fi channel** (`WiFi.setSleep(WIFI_PS_NONE)`; peer locked to bridge MAC `e0:8c:fe:f9:c2:34`).
 
-| Control | Roby |
+| Control | Roby (same mapping as Jazz ProS3) |
 |---------|------|
-| **Options** | Toggle manual ON/OFF (when ON, overrides `/bot1/cmd_vel`) |
-| **Left stick Y** | Forward / back (arcade) |
-| **Left stick X** | Turn |
+| **Options** | Toggle **manual** ON/OFF (when ON, overrides `/bot1/cmd_vel`) |
+| **R2** | Forward throttle (analog) |
+| **L2** | Brake when moving forward; reverse once near zero (net R2 − L2) |
+| **Left stick X** | Steer (expo ~0.6 after deadzone) |
+| **Circle** | Toggle speed **LOW/HIGH** (LOW = 50% max forward; default **LOW**) |
+| **Square** | Toggle steer **LOW/HIGH** (LOW = 50% turn; default **HIGH**) |
 | **Share** (on bridge) | Cycle ESP-NOW target Jazz ↔ Roby (`ps4_bridge_fleet` only) |
+| **Triangle / Cross / L1 / R1** | Jazz-only features (balance, pivot, horns) — **no effect** on Roby |
 | Link loss **300 ms** | Wheels stop; ROS `cmd_vel` resumes |
+
+Ack feedback on the pad (via bridge): light bar **blue** = speed LOW, **green** = speed HIGH; short rumble on Circle/Square.
 
 Stop the bot before OTA. After OTA reboot, servo cal HTTP should come up automatically (Wi‑Fi events register before connect).
 
-**Firmware identity (no USB serial):** cal page and `GET /api/state` include `"fw":"…"` and `"built":"…"`; `GET /api/nvs` shows raw `drv_cal` NVS. Check `"ota_ok":true` before OTA upload.
+**Firmware identity (no USB serial):** cal page shows firmware hash and build time; `GET /api/nvs` for raw NVS. Tarball builds without `.git`: `FW_GIT_HASH=abc123 pio run -e c3_mini_wifi_ota` or put the hash in a one-line `FW_VERSION` file in the repo root.
 
 **USB flash when OTA is stuck:** `pio run -e c3_mini_wifi_ota_usb -t upload` (hold BOOT if needed).

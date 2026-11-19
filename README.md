@@ -99,6 +99,8 @@ Roby firmware (`c3_mini_wifi_ota`) includes the ESP-NOW receiver on the **home W
 
 Ack feedback on the pad (via bridge): light bar **blue** = speed LOW, **green** = speed HIGH; short rumble on Circle/Square.
 
+Roby mount may need opposite stick X sense vs Jazz; defaults in `bot_pins.h` (`BOT_PS4_STEER_SIGN`, `BOT_PS4_PAN_SIGN`, both **-1.0**). Override in `platformio_private.ini`, e.g. `-DBOT_PS4_STEER_SIGN=1.0f`.
+
 Stop the bot before OTA. After OTA reboot, servo cal HTTP should come up automatically (Wi‑Fi events register before connect).
 
 **Firmware identity (no USB serial):** cal page shows firmware hash and build time; `GET /api/nvs` for raw NVS. Tarball builds without `.git`: `FW_GIT_HASH=abc123 pio run -e c3_mini_wifi_ota` or put the hash in a one-line `FW_VERSION` file in the repo root.

@@ -144,7 +144,7 @@ static float effectiveMaxThrottle() { return s_speed_low ? BOT_PS4_MAX_LIN * 0.5
 static float effectiveMaxSteer() { return s_steer_low ? BOT_PS4_MAX_ANG * 0.5f : BOT_PS4_MAX_ANG; }
 
 static float panTargetFromStick(int8_t rx) {
-  const float norm = fleetPs4AxisNorm(rx);
+  const float norm = fleetPs4AxisNorm(rx) * BOT_PS4_PAN_SIGN;
   const float center = static_cast<float>(PAN_CENTER_DEG);
   const float leftSpan = center - static_cast<float>(PAN_MIN_DEG);
   const float rightSpan = static_cast<float>(PAN_MAX_DEG) - center;
@@ -307,7 +307,7 @@ void bot_ps4_espnow_tick(uint32_t now_ms) {
     s_throttle_now = sp.throttle;
     out.override_ros = true;
     out.linear_x = sp.throttle;
-    out.angular_z = sp.steering;
+    out.angular_z = sp.steering * BOT_PS4_STEER_SIGN;
   } else if (s_manual && ctrl_lost) {
     s_throttle_now = 0.0f;
     out.override_ros = true;

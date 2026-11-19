@@ -117,6 +117,14 @@
 #define PAN_MAX_DEG 150
 #endif
 
+// PS4 manual stick sign on Roby (Roby-only; bridge/Jazz unchanged). 1.0 = packet direction, -1.0 = flip.
+#ifndef BOT_PS4_STEER_SIGN
+#define BOT_PS4_STEER_SIGN (-1.0f)
+#endif
+#ifndef BOT_PS4_PAN_SIGN
+#define BOT_PS4_PAN_SIGN (-1.0f)
+#endif
+
 // micro-ROS fleet: unique per physical bot (bot1, bot2, …). Topics become /bot1/cmd_vel etc.
 #ifndef BOT_NAMESPACE
 #define BOT_NAMESPACE "bot1"

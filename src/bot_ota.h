@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+/** Register WiFi event hooks before WiFi.connect (so GOT_IP is not missed). */
+void bot_ota_prepare_wifi_events();
 void bot_ota_begin();
 void bot_ota_tick();
 bool bot_ota_busy();

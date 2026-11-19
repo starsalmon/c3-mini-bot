@@ -114,6 +114,8 @@ void ensure_ota_task() {
 
 }  // namespace
 
+void bot_ota_prepare_wifi_events() { ensure_wifi_events(); }
+
 void bot_ota_begin() {
   ensure_wifi_events();
   ensure_ota_task();
@@ -162,6 +164,7 @@ bool bot_ota_busy() {
 
 #else
 
+void bot_ota_prepare_wifi_events() {}
 void bot_ota_begin() {}
 void bot_ota_tick() {}
 void bot_ota_session_reset() {}

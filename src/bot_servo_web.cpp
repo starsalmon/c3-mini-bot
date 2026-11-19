@@ -161,9 +161,11 @@ void start_listening() {
     stop_listening();
     return;
   }
+  WiFi.setSleep(WIFI_PS_NONE);
   register_routes();
   if (s_listening) {
     server.close();
+    s_listening = false;
   }
   server.begin();
   s_listening = true;

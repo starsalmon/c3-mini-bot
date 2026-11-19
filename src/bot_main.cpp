@@ -28,6 +28,7 @@
 #include "drive_cal_store.h"
 #include "drive_servos.h"
 #include "bot_servo_web.h"
+#include "bot_ps4_espnow.h"
 #include "fleet_ir_proto.h"
 #include "fleet_ir_ping.h"
 #include "fleet_ir_rx.h"
@@ -120,7 +121,22 @@ void apply_drive() {
     drive_arm_announced = true;
     Serial.println("drive armed");
   }
-  if (millis() - last_cmd_ms > CMD_TIMEOUT_MS) {
+  const uint32_t now = millis();
+  const BotPs4DriveOut ps4 = bot_ps4_espnow_poll(now);
+  if (ps4.failsafe) {
+    drive.stop();
+    return;
+  }
+  if (ps4.override_ros) {
+    drive.cancel_hold_stop();
+    float lin = ps4.linear_x;
+    if (lin < -0.02f && rear_tof.ok() && last_tof_m > 0.0f && last_tof_m < TOF_REAR_STOP_M) {
+      lin = 0.0f;
+    }
+    drive.set_twist(lin, ps4.angular_z);
+    return;
+  }
+  if (now - last_cmd_ms > CMD_TIMEOUT_MS) {
     drive.stop();
     return;
   }
@@ -537,6 +553,7 @@ void setup() {
 #endif
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(BOT_OTA_HOSTNAME);
+  bot_ota_prepare_wifi_events();
 #endif
   IPAddress agent_ip;
   if (!agent_ip.fromString(AGENT_IP)) {
@@ -553,6 +570,7 @@ void setup() {
   bot_ota_begin();
   bot_servo_web_begin(drive);
 #endif
+  bot_ps4_espnow_begin();
 #else
   Serial.println("micro-ROS serial transport (USB)");
 #endif

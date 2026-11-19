@@ -72,3 +72,24 @@ Topics are relative in firmware; the agent exposes them under `/bot1/…`:
 | `stall` | `std_msgs/Bool` | ← ESP |
 
 Tune wheels in `include/bot_pins.h` (`SERVO_STOP_US_*`, trims/inverts). **Neutral trim from phone:** with `c3_mini_wifi_ota` on Wi‑Fi, open **[http://c3-bot1.local/](http://c3-bot1.local/)** or **[http://192.168.3.181/](http://192.168.3.181/)** → Hold stop → nudge µs → Save (NVS).
+
+### PS4 manual drive (ESP-NOW)
+
+Same **NodeMCU-32S bridge** as Jazz (`starsalmon/jazz`, branch `cursor/fleet-rgb-status-498d`). Flash the fleet bridge env so you can pick Roby vs Jazz:
+
+```bash
+cd jazz/bridge
+pio run -e ps4_bridge_fleet -t upload
+```
+
+Roby firmware (`c3_mini_wifi_ota`) includes the ESP-NOW receiver on the **home Wi‑Fi channel** (`WiFi.setSleep(WIFI_PS_NONE)`; peer locked to bridge MAC `e0:8c:fe:f9:c2:34`).
+
+| Control | Roby |
+|---------|------|
+| **Options** | Toggle manual ON/OFF (when ON, overrides `/bot1/cmd_vel`) |
+| **Left stick Y** | Forward / back (arcade) |
+| **Left stick X** | Turn |
+| **Share** (on bridge) | Cycle ESP-NOW target Jazz ↔ Roby (`ps4_bridge_fleet` only) |
+| Link loss **300 ms** | Wheels stop; ROS `cmd_vel` resumes |
+
+Stop the bot before OTA. After OTA reboot, servo cal HTTP should come up automatically (Wi‑Fi events register before connect).

@@ -33,6 +33,8 @@ pio run -e c3_mini_wifi_ota_usb -t upload   # first USB flash only (USB CDC on f
 pio run -e c3_mini_wifi_ota -t upload       # OTA — stop motion first (see OTA safety)
 ```
 
+Fleet firmware uses the **`min_spiffs`** partition table (~1.9 MB app). **Changing partition layout requires a one-time USB flash** (`c3_mini_wifi_ota_usb`); OTA cannot resize the partition table in place.
+
 **`c3_mini_wifi` / `c3_mini_wifi_ota`:** USB CDC is **off** so **GPIO19** drives the front NeoPixel bar; use OTA or UART **GPIO20/21** for logs. **`c3_mini_wifi_ota_usb`**, **`c3_bench`**, and **`c3_mini_serial`** keep USB CDC for esptool / bench / micro-ROS serial (front bar on GPIO19 may not work on those builds while CDC owns D+).
 
 On a fresh PlatformIO install, pioarduino sometimes fetches `framework-arduinoespressif32-libs` before the matching `framework-arduinoespressif32` tarball. If the first `pio run` errors on missing Arduino core headers, run `pio pkg install -e c3_mini_wifi_ota` once, then build again.

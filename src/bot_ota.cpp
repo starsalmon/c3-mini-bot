@@ -11,8 +11,12 @@
 
 #if defined(ENABLE_SERVO_WEB)
 void bot_servo_web_tick();
+void bot_servo_web_on_wifi_event(WiFiEvent_t event);
+void bot_servo_web_session_reset();
 #else
 static void bot_servo_web_tick() {}
+static void bot_servo_web_on_wifi_event(WiFiEvent_t) {}
+static void bot_servo_web_session_reset() {}
 #endif
 
 namespace {
@@ -73,10 +77,12 @@ void on_wifi_event(WiFiEvent_t event) {
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       s_ota_ok = false;
       s_ota_started = false;
+      bot_servo_web_on_wifi_event(event);
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       s_ota_ok = false;
       s_ota_started = false;
+      bot_servo_web_on_wifi_event(event);
       break;
     default:
       break;
@@ -94,6 +100,7 @@ void ensure_wifi_events() {
 void ota_task_fn(void*) {
   for (;;) {
     bot_ota_tick();
+    bot_servo_web_tick();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
@@ -137,6 +144,7 @@ void bot_ota_session_reset() {
   if (WiFi.status() == WL_CONNECTED) {
     start_ota_server();
   }
+  bot_servo_web_session_reset();
 }
 
 void bot_ota_delay(uint32_t ms) {

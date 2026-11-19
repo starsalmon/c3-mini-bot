@@ -15,6 +15,8 @@ namespace {
 
 WebServer server(80);
 DriveServos* s_drive = nullptr;
+bool s_routes_registered = false;
+bool s_listening = false;
 
 const char kPage[] PROGMEM = R"html(<!DOCTYPE html>
 <html><head>
@@ -134,22 +136,78 @@ void handle_save() {
   }
 }
 
-}  // namespace
-
-void bot_servo_web_begin(DriveServos& drive) {
-  s_drive = &drive;
+void register_routes() {
+  if (s_routes_registered) {
+    return;
+  }
   server.on("/", HTTP_GET, handle_root);
   server.on("/api/state", HTTP_GET, send_state);
   server.on("/api/nudge", HTTP_POST, handle_nudge);
   server.on("/api/adj", HTTP_POST, handle_adj);
   server.on("/api/hold", HTTP_POST, handle_hold);
   server.on("/api/save", HTTP_POST, handle_save);
+  s_routes_registered = true;
+}
+
+void stop_listening() {
+  if (s_listening) {
+    server.close();
+    s_listening = false;
+  }
+}
+
+void start_listening() {
+  if (WiFi.status() != WL_CONNECTED) {
+    stop_listening();
+    return;
+  }
+  register_routes();
+  if (s_listening) {
+    server.close();
+  }
   server.begin();
-  Serial.println("Servo cal web http://<roby-ip>/");
+  s_listening = true;
+  Serial.printf("Servo cal web http://%s/\n", WiFi.localIP().toString().c_str());
+}
+
+}  // namespace
+
+void bot_servo_web_begin(DriveServos& drive) {
+  s_drive = &drive;
+  register_routes();
+  start_listening();
 }
 
 void bot_servo_web_tick() {
-  server.handleClient();
+  if (WiFi.status() != WL_CONNECTED) {
+    stop_listening();
+    return;
+  }
+  if (!s_listening) {
+    start_listening();
+  }
+  if (s_listening) {
+    server.handleClient();
+  }
+}
+
+void bot_servo_web_on_wifi_event(WiFiEvent_t event) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      stop_listening();
+      break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      start_listening();
+      break;
+    default:
+      break;
+  }
+}
+
+void bot_servo_web_session_reset() {
+  if (WiFi.status() == WL_CONNECTED) {
+    start_listening();
+  }
 }
 
 #endif

@@ -176,13 +176,14 @@ bool wait_for_agent(uint32_t timeout_ms) {
     const uint32_t t = millis();
     service_status_led(t);
 #if defined(ENABLE_OTA)
-    bot_ota_tick();
+    bot_ota_delay(500);
+#else
+    delay(500);
 #endif
     if (rmw_uros_ping_agent(200, 3) == RMW_RET_OK) {
       return true;
     }
     Serial.println("waiting for agent...");
-    delay(500);
   }
   return false;
 }
@@ -347,6 +348,9 @@ void destroy_entities() {
   stall_last_pub = false;
   last_stall_pub_ms = 0;
   imu_features.reset();
+#if defined(ENABLE_OTA)
+  bot_ota_session_reset();
+#endif
 }
 
 bool connect_ros() {
@@ -359,7 +363,11 @@ bool connect_ros() {
   if (!create_entities()) {
     Serial.println("micro-ROS entity init failed — retrying in 2s");
     destroy_entities();
+#if defined(ENABLE_OTA)
+    bot_ota_delay(2000);
+#else
     delay(2000);
+#endif
     ros_connecting = false;
     return false;
   }
@@ -604,6 +612,7 @@ void setup() {
 
 void loop() {
   static uint32_t last_ping = 0;
+  static uint8_t agent_ping_fails = 0;
   static uint32_t last_range = 0;
   static uint32_t last_imu = 0;
   static uint32_t last_ir = 0;
@@ -619,7 +628,6 @@ void loop() {
   }
 
 #if defined(ENABLE_OTA)
-  bot_ota_tick();
   bot_servo_web_tick();
   if (bot_ota_busy()) {
     drive.stop();
@@ -644,15 +652,20 @@ void loop() {
   rear_tof.poll();
   last_tof_m = rear_tof.range_m();
 
-  if (now - last_ping > 1000) {
+  if (now - last_ping > 3000) {
     last_ping = now;
-    if (rmw_uros_ping_agent(100, 1) != RMW_RET_OK) {
-      Serial.println("agent lost");
-      destroy_entities();
-      ir_tx.set_enabled(false);
-      drive.stop();
-      service_status_led(now);
-      return;
+    if (rmw_uros_ping_agent(500, 2) != RMW_RET_OK) {
+      if (++agent_ping_fails >= 3) {
+        Serial.println("agent lost (3 ping fails)");
+        agent_ping_fails = 0;
+        destroy_entities();
+        ir_tx.set_enabled(false);
+        drive.stop();
+        service_status_led(now);
+        return;
+      }
+    } else {
+      agent_ping_fails = 0;
     }
   }
 

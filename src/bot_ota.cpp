@@ -9,17 +9,36 @@
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 
+#if defined(ENABLE_SERVO_WEB)
+void bot_servo_web_tick();
+#else
+static void bot_servo_web_tick() {}
+#endif
+
 namespace {
 
 bool s_ota_ok = false;
 bool s_ota_busy = false;
 bool s_ota_started = false;
+bool s_wifi_events = false;
+TaskHandle_t s_ota_task = nullptr;
+
+void service_idle() {
+  bot_servo_web_tick();
+  yield();
+}
 
 void start_ota_server() {
-  if (s_ota_started) {
+  if (WiFi.status() != WL_CONNECTED) {
+    s_ota_ok = false;
     return;
   }
-  s_ota_started = true;
+
+  if (s_ota_started) {
+    ArduinoOTA.end();
+    s_ota_started = false;
+    s_ota_ok = false;
+  }
 
   WiFi.setSleep(WIFI_PS_NONE);
   WiFi.setHostname(BOT_OTA_HOSTNAME);
@@ -38,31 +57,94 @@ void start_ota_server() {
   ArduinoOTA.onError([](ota_error_t err) {
     s_ota_busy = false;
     Serial.printf("OTA err %u\n", err);
+    s_ota_ok = false;
+    s_ota_started = false;
   });
-  // ArduinoOTA.begin() registers mDNS (_arduino._tcp) on ESP32 — no extra MDNS calls.
-  ArduinoOTA.begin();
 
+  ArduinoOTA.begin();
+  s_ota_started = true;
   s_ota_ok = true;
-  Serial.printf("OTA ready — %s.local  IP %s\n", BOT_OTA_HOSTNAME,
+  Serial.printf("OTA ready — %s.local  IP %s:3232\n", BOT_OTA_HOSTNAME,
                 WiFi.localIP().toString().c_str());
+}
+
+void on_wifi_event(WiFiEvent_t event) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      s_ota_ok = false;
+      s_ota_started = false;
+      break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      s_ota_ok = false;
+      s_ota_started = false;
+      break;
+    default:
+      break;
+  }
+}
+
+void ensure_wifi_events() {
+  if (s_wifi_events) {
+    return;
+  }
+  WiFi.onEvent(on_wifi_event);
+  s_wifi_events = true;
+}
+
+void ota_task_fn(void*) {
+  for (;;) {
+    bot_ota_tick();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void ensure_ota_task() {
+  if (s_ota_task != nullptr) {
+    return;
+  }
+  xTaskCreate(ota_task_fn, "ota", 4096, nullptr, 1, &s_ota_task);
 }
 
 }  // namespace
 
 void bot_ota_begin() {
+  ensure_wifi_events();
+  ensure_ota_task();
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("OTA: WiFi not ready — will retry in loop");
+    Serial.println("OTA: WiFi not ready — will retry in loop/task");
     return;
   }
   start_ota_server();
 }
 
 void bot_ota_tick() {
-  if (!s_ota_ok && WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() != WL_CONNECTED) {
+    s_ota_ok = false;
+    s_ota_started = false;
+    return;
+  }
+  if (!s_ota_ok) {
     start_ota_server();
   }
   if (s_ota_ok) {
     ArduinoOTA.handle();
+  }
+}
+
+void bot_ota_session_reset() {
+  s_ota_ok = false;
+  s_ota_started = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    start_ota_server();
+  }
+}
+
+void bot_ota_delay(uint32_t ms) {
+  const uint32_t end = millis() + ms;
+  while (static_cast<int32_t>(end - millis()) > 0) {
+    bot_ota_tick();
+    service_idle();
+    delay(10);
   }
 }
 
@@ -74,6 +156,10 @@ bool bot_ota_busy() {
 
 void bot_ota_begin() {}
 void bot_ota_tick() {}
+void bot_ota_session_reset() {}
+void bot_ota_delay(uint32_t ms) {
+  delay(ms);
+}
 bool bot_ota_busy() {
   return false;
 }

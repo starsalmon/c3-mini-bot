@@ -4,7 +4,7 @@
   depth: 10
 
 /bot1/cmd_vel:
-  reliability: reliable
+  reliability: best_effort
   history: keep_last
   depth: 10
 
@@ -40,6 +40,21 @@
 
 /bot1/battery/voltage:
   reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/tof/rear:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/ir/peer:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/stall:
+  reliability: reliable
   history: keep_last
   depth: 10
 

@@ -20,6 +20,7 @@ One **micro-ROS agent** on dockerhost bridges ESP32 minis into the same ROS 2 DD
   - `/bot1/ir/detected`, `/bot1/ir/peer`
   - `/bot1/battery/voltage`
   - `/bot1/tof/rear`, `/bot1/stall`
+- **QoS (fleet rule on ESP):** high-rate publishers (`imu`, sonar, ToF, IR, battery) and `cmd_vel` subscription = **best effort**; **`stall`** = **reliable**. Match on dockerhost (see `ros2/docker/rover-record-qos.yaml`, `README.md`).
 
 ## tracked-bot (bot2, Unexpected Maker TinyS3)
 

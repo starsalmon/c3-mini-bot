@@ -249,42 +249,42 @@ bool create_entities() {
   }
   ros_init_level = 2;
 
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &range_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Range), "sonar/range");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub sonar/range", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &pan_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "sonar/pan_deg");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub sonar/pan_deg", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &imu_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub imu", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &ir_detected_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "ir/detected");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub ir/detected", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &ir_peer_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8), "ir/peer");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub ir/peer", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &battery_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "battery/voltage");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub battery/voltage", rc);
@@ -298,7 +298,7 @@ bool create_entities() {
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &tof_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Range), "tof/rear");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub tof/rear", rc);
@@ -307,7 +307,7 @@ bool create_entities() {
   }
   ros_init_level = 3;
 
-  rc = rclc_subscription_init_default(
+  rc = rclc_subscription_init_best_effort(
       &cmd_sub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), "cmd_vel");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("sub cmd_vel", rc);

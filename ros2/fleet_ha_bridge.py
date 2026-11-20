@@ -136,20 +136,19 @@ class FleetHaBridge(Node):
 
         for bot in self._robots.values():
             if bot.battery_topic:
-                # micro-ROS rclc_publisher_init_default is RELIABLE — best-effort
-                # subs never see /bot1/battery/voltage (and IMU/sonar).
+                # ESP firmware publishes sensors as BEST_EFFORT (fleet rule).
                 self.create_subscription(
                     Float32,
                     bot.battery_topic,
                     self._mk_battery_cb(bot.slug),
-                    REL_QOS,
+                    BE_QOS,
                 )
             for topic, msg_type in bot.live_topics:
                 self.create_subscription(
                     msg_type,
                     topic,
                     self._mk_seen_cb(bot.slug),
-                    REL_QOS,
+                    BE_QOS,
                 )
             if bot.session_topic:
                 self.create_subscription(

@@ -203,6 +203,8 @@ Single onboard WS2812 (`STATUS_LED_PIN` **10**, **NEO_RGB**, brightness 20). Fle
 
 Fleet env: `BOT_NAMESPACE=bot1`, `AGENT_IP=192.168.3.172`, `FLEET_IR_ID=1` in `platformio.ini` / `platformio_private.ini`. See `docs/SWARM.md` and `docs/PINMAP.md`.
 
+**QoS:** Sensor and `cmd_vel` traffic is **best effort** on the ESP (`rclc_*_init_best_effort`); **`/bot1/stall`** stays **reliable** (rare on-change events). Do not use reliable `cmd_vel` to the mini — retransmits overwhelm the XRCE link. Detail: `README.md` topic table and `ros2/docker/rover-record-qos.yaml`.
+
 USB serial transport works for bench without WiFi.
 
 ---

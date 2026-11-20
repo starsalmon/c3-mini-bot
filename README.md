@@ -71,6 +71,18 @@ Topics are relative in firmware; the agent exposes them under `/bot1/…`:
 | `tof/rear` | `sensor_msgs/Range` | ← ESP |
 | `stall` | `std_msgs/Bool` | ← ESP |
 
+### Fleet QoS (micro-ROS on ESP)
+
+High-rate streams use **best effort** so the XRCE agent is not flooded with reliable ACKs; one-off or edge events stay **reliable**. All listed types are under the WiFi **1400 B** MTU.
+
+| Topic | Reliability |
+|-------|-------------|
+| `cmd_vel` (sub) | best effort |
+| `sonar/range`, `sonar/pan_deg`, `imu`, `ir/detected`, `ir/peer`, `battery/voltage`, `tof/rear` | best effort |
+| `stall` | reliable (on-change) |
+
+Brain and tools should match: `ros2/docker/rover-record-qos.yaml`. Firmware uses `rclc_publisher_init_best_effort` / `rclc_subscription_init_best_effort` except `rclc_publisher_init_default` on `stall`.
+
 Tune wheels in `include/bot_pins.h` (`SERVO_STOP_US_*`, trims/inverts). **Neutral trim from phone:** with `c3_mini_wifi_ota` on Wi‑Fi, open **[http://c3-bot1.local/](http://c3-bot1.local/)** or **[http://192.168.3.181/](http://192.168.3.181/)** → Hold stop → nudge µs → Save (NVS).
 
 ### PS4 manual drive (ESP-NOW)

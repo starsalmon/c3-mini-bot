@@ -5,6 +5,7 @@
 #include "bot_pins.h"
 #include "bot_status_led.h"
 #include "drive_cli.h"
+#include "drive_cal_store.h"
 #include "drive_servos.h"
 #include "ir_beacon.h"
 #include "ir_tx.h"
@@ -101,13 +102,17 @@ bool init_imu() {
   const bool ok = imu.begin(I2C_SDA_PIN, I2C_SCL_PIN, MPU6050_ADDR);
   if (ok) {
     Serial.printf("MPU6050 OK @ 0x%02X\n", imu.addr());
-    // Amber = bench mode idle (not fleet "cruise" — that misled volt/drive tests).
-    bot_led_set(BotLedMode::Boot);
   } else {
     Serial.println("MPU6050 init failed");
-    bot_led_set(BotLedMode::Fault);
   }
   return ok;
+}
+
+void service_status_led(uint32_t now_ms) {
+  // USB bench — no WiFi/micro-ROS; same fleet LED pattern as autonomous (WifiConnecting).
+  BotStatusLedInput in;
+  bot_led_set_input(in);
+  bot_led_tick(now_ms);
 }
 
 void stream_imu(uint32_t ms) {
@@ -137,11 +142,15 @@ void setup() {
   Serial.println("*** Reflash c3_mini_wifi_ota for fleet / ROS drive ***");
   Serial.println();
   bot_led_begin();
-  bot_led_set(BotLedMode::Boot);
 
   servo_hw_init();
   if (!drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN)) {
     Serial.println("WARN: wheel servos not attached");
+  } else {
+    DriveCalStore::Settings cal;
+    if (DriveCalStore::load(&cal)) {
+      DriveCalStore::apply(drive, cal);
+    }
   }
   pan.begin(SERVO_PAN_PIN);
   pan.set_deg(PAN_CENTER_DEG);
@@ -162,8 +171,9 @@ void loop() {
   static char line[32];
   static uint8_t line_len = 0;
 
-  drive.tick();
-  bot_led_tick(millis());
+  const uint32_t now = millis();
+  drive.tick(now);
+  service_status_led(now);
   ir_tx.tick();
 
   while (Serial.available()) {

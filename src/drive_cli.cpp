@@ -3,6 +3,7 @@
 
 #include "drive_cli.h"
 
+#include "bot_pins.h"
 #include "drive_servos.h"
 
 namespace {
@@ -22,6 +23,8 @@ void print_help(Stream& io) {
   io.println("  R <pct>   right wheel only");
   io.println("  B <pct>   both wheels (same speed)");
   io.println("  S         stop");
+  io.println("  Nl <us>   left wheel neutral pulse (e.g. Nl 1492)");
+  io.println("  Nr <us>   right wheel neutral pulse");
   io.println("  ?         this help");
   io.println("Examples:  L 5   R 15   B 30   B -10");
   io.println();
@@ -34,6 +37,28 @@ bool drive_cli_active() { return s_active; }
 bool drive_cli_handle_line(DriveServos& drive, Stream& io, const char* line) {
   while (*line == ' ' || *line == '\t') ++line;
   if (*line == '\0') return false;
+
+  if ((line[0] == 'N' || line[0] == 'n') &&
+      (line[1] == 'l' || line[1] == 'L' || line[1] == 'r' || line[1] == 'R')) {
+    const char* rest = line + 2;
+    while (*rest == ' ' || *rest == '\t') ++rest;
+    char* end = nullptr;
+    const long us = strtol(rest, &end, 10);
+    if (end == rest || us < SERVO_MIN_US || us > SERVO_MAX_US) {
+      io.println("need us, e.g. Nl 1500");
+      return true;
+    }
+    uint16_t l = drive.stop_us_left();
+    uint16_t r = drive.stop_us_right();
+    if (line[1] == 'l' || line[1] == 'L') {
+      l = static_cast<uint16_t>(us);
+    } else {
+      r = static_cast<uint16_t>(us);
+    }
+    drive.set_stop_us(l, r);
+    io.printf("neutral L=%u R=%u us\n", l, r);
+    return true;
+  }
 
   const char cmd = static_cast<char>(toupper(static_cast<unsigned char>(*line)));
   if (cmd != 'L' && cmd != 'R' && cmd != 'B' && cmd != 'S' && cmd != '?') {

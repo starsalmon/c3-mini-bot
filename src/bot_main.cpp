@@ -25,7 +25,10 @@
 #include "bot_front_bar.h"
 #include "bot_status_led.h"
 #include "bot_tof.h"
+#include "drive_cal_store.h"
 #include "drive_servos.h"
+#include "bot_servo_web.h"
+#include "bot_ps4_espnow.h"
 #include "fleet_ir_proto.h"
 #include "fleet_ir_ping.h"
 #include "fleet_ir_rx.h"
@@ -38,6 +41,8 @@
 #include "ultrasonic.h"
 #include "oled_ssd1306.h"
 #include "bot_speaker.h"
+#include "heading_hold.h"
+#include "heading_hold_store.h"
 
 namespace {
 
@@ -79,6 +84,7 @@ bool stall_last_pub = false;
 uint32_t last_stall_pub_ms = 0;
 
 BotImuFeatures imu_features;
+HeadingHold heading_hold;
 
 rcl_publisher_t range_pub;
 rcl_publisher_t pan_pub;
@@ -118,19 +124,57 @@ void apply_drive() {
     drive_arm_announced = true;
     Serial.println("drive armed");
   }
-  if (millis() - last_cmd_ms > CMD_TIMEOUT_MS) {
+  const uint32_t now = millis();
+  const BotPs4DriveOut ps4 = bot_ps4_espnow_poll(now);
+  if (ps4.failsafe) {
+    heading_hold.release();
     drive.stop();
     return;
   }
-  float lin = last_lin;
+
+  float lin = 0.0f;
+  float ang = 0.0f;
+  bool have_drive = false;
+  bool straight_hold = false;
+
+  if (ps4.override_ros) {
+    drive.cancel_hold_stop();
+    lin = ps4.linear_x;
+    ang = ps4.angular_z;
+    have_drive = true;
+    straight_hold = bot_ps4_straight_eligible(&lin);
+  } else if (now - last_cmd_ms <= CMD_TIMEOUT_MS) {
+    lin = last_lin;
+    ang = last_ang;
+    have_drive = true;
+    straight_hold =
+        (fabsf(last_ang) < 0.08f) && (fabsf(last_lin) >= 0.06f);
+  } else {
+    heading_hold.release();
+    drive.stop();
+    return;
+  }
+
   if (lin < -0.02f && rear_tof.ok() && last_tof_m > 0.0f && last_tof_m < TOF_REAR_STOP_M) {
     lin = 0.0f;
+    straight_hold = false;
   }
-  drive.set_twist(lin, last_ang);
+
+  if (imu_ok && heading_hold.enabled() && heading_hold.ready() && straight_hold) {
+    if (!heading_hold.armed()) {
+      heading_hold.latch();
+    }
+    ang += heading_hold.correction(lin, ang);
+  } else {
+    heading_hold.release();
+  }
+
+  drive.set_twist(lin, ang);
 }
 
 void on_cmd(const void *msgin) {
   const auto *msg = static_cast<const geometry_msgs__msg__Twist *>(msgin);
+  drive.cancel_hold_stop();
   last_lin = static_cast<float>(msg->linear.x);
   last_ang = static_cast<float>(msg->angular.z);
   last_cmd_ms = millis();
@@ -145,51 +189,42 @@ void sync_ir_tx() {
 #endif
 }
 
-void sync_status_led() {
-  if (!drive.ok() || !pan_servo.ok()) {
-    bot_led_set(BotLedMode::Fault);
-    return;
-  }
-  if (!ros_ok) {
-    bot_led_set(BotLedMode::Boot);
-    return;
-  }
-  if (!sonar_ok) {
-    bot_led_set(BotLedMode::NoSonar);
-    return;
-  }
-#if IR_PAN_SCAN
-  if (!ir.read_any()) {
-    bot_led_set(BotLedMode::Scan);
-    return;
-  }
+bool had_agent_session = false;
+bool ros_connecting = false;
+
+void fill_status_led_input(BotStatusLedInput* in) {
+#if defined(MICRO_ROS_WIFI)
+  in->wifi_connected = WiFi.status() == WL_CONNECTED;
+  in->uros_transport = in->wifi_connected;
+#else
+  in->wifi_connected = true;
+  in->uros_transport = true;
 #endif
-  if (millis() - last_cmd_ms > CMD_TIMEOUT_MS) {
-    bot_led_set(BotLedMode::Cruise);
-    return;
-  }
-  if (last_lin < -0.05f) {
-    bot_led_set(BotLedMode::Reverse);
-  } else if (fabsf(last_ang) > 0.08f) {
-    bot_led_set(BotLedMode::Turn);
-  } else {
-    bot_led_set(BotLedMode::Cruise);
-  }
+  in->agent_connected = ros_ok;
+  in->agent_reconnecting = ros_connecting || (had_agent_session && !ros_ok);
+}
+
+void service_status_led(uint32_t now_ms) {
+  BotStatusLedInput in;
+  fill_status_led_input(&in);
+  bot_led_set_input(in);
+  bot_led_tick(now_ms);
 }
 
 bool wait_for_agent(uint32_t timeout_ms) {
   const uint32_t start = millis();
   while (millis() - start < timeout_ms) {
     const uint32_t t = millis();
-    bot_led_tick(t);
+    service_status_led(t);
 #if defined(ENABLE_OTA)
-    bot_ota_tick();
+    bot_ota_delay(500);
+#else
+    delay(500);
 #endif
     if (rmw_uros_ping_agent(200, 3) == RMW_RET_OK) {
       return true;
     }
     Serial.println("waiting for agent...");
-    delay(500);
   }
   return false;
 }
@@ -214,42 +249,42 @@ bool create_entities() {
   }
   ros_init_level = 2;
 
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &range_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Range), "sonar/range");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub sonar/range", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &pan_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "sonar/pan_deg");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub sonar/pan_deg", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &imu_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub imu", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &ir_detected_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "ir/detected");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub ir/detected", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &ir_peer_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8), "ir/peer");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub ir/peer", rc);
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &battery_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "battery/voltage");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub battery/voltage", rc);
@@ -263,7 +298,7 @@ bool create_entities() {
     destroy_entities();
     return false;
   }
-  rc = rclc_publisher_init_default(
+  rc = rclc_publisher_init_best_effort(
       &tof_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Range), "tof/rear");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("pub tof/rear", rc);
@@ -272,7 +307,7 @@ bool create_entities() {
   }
   ros_init_level = 3;
 
-  rc = rclc_subscription_init_default(
+  rc = rclc_subscription_init_best_effort(
       &cmd_sub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), "cmd_vel");
   if (rc != RCL_RET_OK) {
     ROS_LOG_FAIL("sub cmd_vel", rc);
@@ -319,6 +354,7 @@ bool create_entities() {
   imu_msg.header.frame_id.size = sizeof(imu_frame) - 1;
 
   ros_ok = true;
+  had_agent_session = true;
   return true;
 }
 
@@ -353,19 +389,30 @@ void destroy_entities() {
   stall_last_pub = false;
   last_stall_pub_ms = 0;
   imu_features.reset();
+#if defined(ENABLE_OTA)
+  bot_ota_session_reset();
+#endif
 }
 
 bool connect_ros() {
+  ros_connecting = true;
   if (!wait_for_agent(AGENT_WAIT_MS)) {
+    ros_connecting = false;
     Serial.println("agent not reachable — check AGENT_IP, UDP 8888, same subnet");
     return false;
   }
   if (!create_entities()) {
     Serial.println("micro-ROS entity init failed — retrying in 2s");
     destroy_entities();
+#if defined(ENABLE_OTA)
+    bot_ota_delay(2000);
+#else
     delay(2000);
+#endif
+    ros_connecting = false;
     return false;
   }
+  ros_connecting = false;
   // C3 LEDC: 38 kHz IR TX can clobber servo PWM if wheels attached first.
   drive.reattach(SERVO_LEFT_PIN, SERVO_RIGHT_PIN);
   pan_servo.reattach(SERVO_PAN_PIN);
@@ -497,7 +544,6 @@ void setup() {
   Serial.println("c3-mini-bot boot");
 
   bot_led_begin();
-  bot_led_set(BotLedMode::Boot);
   front_bar.begin(FRONT_BAR_PIN, FRONT_BAR_COUNT, FRONT_BAR_BRIGHTNESS);
 
   servo_hw_init();
@@ -532,6 +578,7 @@ void setup() {
 #endif
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(BOT_OTA_HOSTNAME);
+  bot_ota_prepare_wifi_events();
 #endif
   IPAddress agent_ip;
   if (!agent_ip.fromString(AGENT_IP)) {
@@ -546,7 +593,10 @@ void setup() {
   Serial.println(WiFi.localIP());
 #if defined(ENABLE_OTA)
   bot_ota_begin();
+  bot_servo_web_begin(drive);
+  bot_servo_web_set_heading(&heading_hold);
 #endif
+  bot_ps4_espnow_begin();
 #else
   Serial.println("micro-ROS serial transport (USB)");
 #endif
@@ -560,9 +610,33 @@ void setup() {
   } else {
     Serial.println("WARN: IR TX PWM init failed");
   }
-  if (!drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN)) {
-    Serial.println("WARN: wheel servos not attached");
-  } else {
+  {
+    DriveCalStore::BootCalStatus boot{};
+    DriveCalStore::NvsSnapshot nvs{};
+    if (!DriveCalStore::read_nvs_snapshot(&nvs)) {
+      boot.nvs_open_fail = true;
+    } else {
+      boot.magic_read = nvs.magic;
+    }
+    DriveCalStore::Settings cal;
+    boot.load_ok = DriveCalStore::load(&cal);
+    if (boot.load_ok) {
+      boot.loaded = cal;
+      DriveCalStore::apply(drive, cal);
+    }
+    const bool attached = drive.begin(SERVO_LEFT_PIN, SERVO_RIGHT_PIN);
+    boot.servos_attached = attached;
+    if (boot.load_ok) {
+      DriveCalStore::apply(drive, cal);
+    }
+    DriveCalStore::set_boot_cal_status(boot);
+    Serial.printf(
+        "Drive cal: nvs_open=%d magic=0x%08lx load=%d attach=%d L=%u R=%u\n",
+        (int)nvs.open_ok, (unsigned long)boot.magic_read, (int)boot.load_ok, (int)attached,
+        drive.stop_us_left(), drive.stop_us_right());
+    if (!attached) {
+      Serial.println("WARN: wheel servos not attached");
+    }
     drive.stop();
   }
   pan_servo.begin(SERVO_PAN_PIN);
@@ -572,6 +646,13 @@ void setup() {
     Serial.println("WARN: MPU6050 not found on I2C");
   } else {
     Serial.printf("MPU6050 OK (gyro Z sign %.0f)\n", (double)IMU_GYRO_Z_SIGN);
+    heading_hold.begin();
+    HeadingHoldStore::NvsSettings hdg_nvs;
+    if (HeadingHoldStore::load(&hdg_nvs)) {
+      HeadingHoldStore::apply(heading_hold, hdg_nvs);
+    }
+    Serial.printf("Heading hold: en=%d kp=%.3f (calibrating gyro bias…)\n",
+                  (int)heading_hold.enabled(), (double)heading_hold.settings().kp);
   }
   if (!rear_tof.begin()) {
     Serial.println("WARN: rear ToF not found");
@@ -600,11 +681,14 @@ void setup() {
 
 void loop() {
   static uint32_t last_ping = 0;
+  static uint8_t agent_ping_fails = 0;
   static uint32_t last_range = 0;
   static uint32_t last_imu = 0;
   static uint32_t last_ir = 0;
   static uint32_t last_bat = 0;
   const uint32_t now = millis();
+
+  bot_ps4_espnow_tick(now);
 
 #if SPEAKER_ENABLED
   speaker.tick(now);
@@ -615,11 +699,12 @@ void loop() {
   }
 
 #if defined(ENABLE_OTA)
-  bot_ota_tick();
+  bot_servo_web_set_pan_deg(pan_deg);
+  bot_servo_web_tick();
   if (bot_ota_busy()) {
     drive.stop();
     front_bar.tick(now, ros_ok, false, 0.0f, 0.0f, sonar_ok, last_sonar_m, last_ir_detected, false, false);
-    bot_led_tick(now);
+    service_status_led(now);
     delay(10);
     return;
   }
@@ -628,9 +713,8 @@ void loop() {
   if (!ros_ok) {
     connect_ros();
     drive.stop();
-    sync_status_led();
     front_bar.tick(now, ros_ok, false, 0.0f, 0.0f, sonar_ok, last_sonar_m, last_ir_detected, false, false);
-    bot_led_tick(millis());
+    service_status_led(now);
     delay(200);
     return;
   }
@@ -640,20 +724,25 @@ void loop() {
   rear_tof.poll();
   last_tof_m = rear_tof.range_m();
 
-  if (now - last_ping > 1000) {
+  if (now - last_ping > 3000) {
     last_ping = now;
-    if (rmw_uros_ping_agent(100, 1) != RMW_RET_OK) {
-      Serial.println("agent lost");
-      destroy_entities();
-      ir_tx.set_enabled(false);
-      drive.stop();
-      bot_led_set(BotLedMode::Fault);
-      return;
+    if (rmw_uros_ping_agent(500, 2) != RMW_RET_OK) {
+      if (++agent_ping_fails >= 3) {
+        Serial.println("agent lost (3 ping fails)");
+        agent_ping_fails = 0;
+        destroy_entities();
+        ir_tx.set_enabled(false);
+        drive.stop();
+        service_status_led(now);
+        return;
+      }
+    } else {
+      agent_ping_fails = 0;
     }
   }
 
   apply_drive();
-  drive.tick();
+  drive.tick(now);
   sync_ir_tx();
   fleet_ir_service([&]() { ir_tx.tick(); }, [&]() {
     if (!ir_tx.in_tx_frame()) {
@@ -661,8 +750,21 @@ void loop() {
     }
   });
 
+#if defined(ENABLE_PS4_ESPNOW)
+    bot_ps4_pan_seed(pan_deg);
+#endif
+    bool pan_from_ps4 = false;
+#if defined(ENABLE_PS4_ESPNOW)
+    pan_from_ps4 = bot_ps4_controls_pan();
+    if (pan_from_ps4) {
+      pan_deg = bot_ps4_pan_deg();
+      pan_servo.set_deg(pan_deg);
+    }
+#endif
 #if IR_PAN_SCAN
-  tick_pan_scan(now);
+    if (!pan_from_ps4) {
+      tick_pan_scan(now);
+    }
 #endif
 
   if (now - last_range >= RANGE_PERIOD_MS) {
@@ -692,6 +794,8 @@ void loop() {
     last_imu = now;
     ImuSample sample;
     if (imu.read(sample)) {
+      const bool stationary = !drive.moving() && fabsf(last_lin) < 0.05f && !bot_ps4_manual_active();
+      heading_hold.update(sample.gz, stationary, now);
       const bool cmd_active = (now - last_cmd_ms) <= CMD_TIMEOUT_MS;
       const bool motion_intent = BotImuFeatures::intent_from_cmd(last_lin, last_ang, cmd_active);
       imu_features.note_intent(motion_intent, now);
@@ -743,11 +847,10 @@ void loop() {
     }
   }
 
-  sync_status_led();
   const bool cmd_active = (now - last_cmd_ms) <= CMD_TIMEOUT_MS;
   const bool bump_pulse = imu_features.bump_pulse(now);
   front_bar.tick(now, ros_ok, cmd_active, last_lin, last_ang, sonar_ok, last_sonar_m, last_ir_detected,
                  stall_active, bump_pulse);
-  bot_led_tick(now);
+  service_status_led(now);
   delay(LOOP_MS);
 }

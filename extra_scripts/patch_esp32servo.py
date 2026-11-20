@@ -1,4 +1,7 @@
-"""Patch ESP32Servo double-attach on Arduino-ESP32 3.x (clean LEDC boot)."""
+"""Patch ESP32Servo double-attach on Arduino-ESP32 3.x (clean LEDC boot).
+
+Servo timing (50 Hz, 16-bit) is set in firmware via servo_hw_prepare() before attach.
+"""
 Import("env")
 
 import glob

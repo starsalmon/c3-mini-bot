@@ -23,8 +23,8 @@ Always use **BCM / GPIO numbers** in software — not physical header positions.
 | **8** | I2C SDA | MPU6050, VL53L0X, SSD1306 OLED |
 | **9** | I2C SCL | MPU6050, VL53L0X, SSD1306 OLED |
 | **10** | Onboard WS2812 | Status LED (do not repurpose) |
-| **18** | USB D− | Native USB — not for add-ons |
-| **19** | Front NeoPixel bar DIN | `FRONT_BAR_PIN` (same pad as USB D+) |
+| **18** | USB D− | Native USB when CDC enabled |
+| **19** | Front NeoPixel bar DIN | `FRONT_BAR_PIN` — **fleet WiFi/OTA builds disable USB CDC** so GPIO19 is free |
 | **20** | IR LED TX | Fleet 38 kHz on **GPIO20** (silk **RX**) |
 | **21** | UART0 TX | Console (silk **TX**) — avoid other use |
 
@@ -53,7 +53,9 @@ Common **GND** between C3, BEC, and sensors.
 | Wheel R (FS90R) | **GPIO1** | VBAT + GND |
 | Pan (FS90) | **GPIO3** | 5 V BEC + GND |
 
-FS90R: **1500 µs = stop** (`SERVO_STOP_US`). One wheel may need invert in firmware (`SERVO_INVERT_RIGHT=1` default).
+FS90R: default **1500 µs neutral** per wheel (compile defaults; **NVS overrides at boot** on fleet firmware). Commands within **±40 µs** (`SERVO_STOP_DEADBAND_US`) snap to exact neutral. Output pulses slew **8 µs / 10 ms** (`SERVO_SLEW_US_PER_10MS`), max travel **±350 µs** from neutral (`SERVO_MAX_OFFSET_US`). PWM **50 Hz**, 16-bit LEDC; detach **300 ms after** the output pulse reaches neutral (`SERVO_IDLE_DETACH_MS`).
+
+**Phone calibration (fleet `c3_mini_wifi_ota` only):** on the same Wi‑Fi as Roby open **http://c3-bot1.local/** or **http://192.168.3.181/** → **Hold stop** (8 s, neutral PWM only) → nudge **Left/Right ±1/±5 µs** until the creeping wheel stops → **Save** (writes NVS). Any `cmd_vel` cancels hold. Bench: `Nl`/`Nr` serial commands (USB envs only).
 
 ---
 
@@ -175,7 +177,17 @@ Startup chirp and short ping when another fleet IR ID is decoded (`bot_speaker.c
 
 ## Status LED (GPIO10)
 
-Onboard WS2812 — boot / WiFi / agent / IR lock colours in `bot_status_led.cpp`. No extra wiring.
+Single onboard WS2812 (`STATUS_LED_PIN` **10**, **NEO_RGB**, brightness 20). Fleet WiFi / micro-ROS phases in `bot_status_led.cpp` (same pattern as Rover ProS3):
+
+| Phase | Colour | Pattern |
+|-------|--------|---------|
+| Boot | dim white | 350 ms solid after power-on |
+| WifiConnecting | amber | 400 ms on / off — no WiFi, or within 45 s grace |
+| WifiNoAgent | blue | 1200 ms on / off — WiFi up, no agent after grace |
+| AgentOk | dim green | solid — session + entities OK |
+| AgentLost | red | 400 ms blink — reconnect after prior session |
+
+`c3_autonomous` / `c3_bench` have no agent: LED stays **WifiConnecting** (amber) after boot grace. Motion colours are **not** on this LED; see `docs/TODO.md` for a future front bar. No extra wiring.
 
 ---
 
@@ -190,6 +202,8 @@ Onboard WS2812 — boot / WiFi / agent / IR lock colours in `bot_status_led.cpp`
 ```
 
 Fleet env: `BOT_NAMESPACE=bot1`, `AGENT_IP=192.168.3.172`, `FLEET_IR_ID=1` in `platformio.ini` / `platformio_private.ini`. See `docs/SWARM.md` and `docs/PINMAP.md`.
+
+**QoS:** Sensor and `cmd_vel` traffic is **best effort** on the ESP (`rclc_*_init_best_effort`); **`/bot1/stall`** stays **reliable** (rare on-change events). Do not use reliable `cmd_vel` to the mini — retransmits overwhelm the XRCE link. Detail: `README.md` topic table and `ros2/docker/rover-record-qos.yaml`.
 
 USB serial transport works for bench without WiFi.
 

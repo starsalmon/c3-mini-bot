@@ -25,9 +25,9 @@ Use **GPIO (BCM)** numbers in firmware (`include/bot_pins.h`).
 | — | 7 | DIG IN | TSOP4138 OUT (pin 1) | LOW = 38 kHz; `IR_RECV_RIGHT_PIN` |
 | SDA | 8 | I2C SDA | MPU6050 SDA, VL53L0X SDA, SSD1306 SDA | Shared bus |
 | SCL | 9 | I2C SCL | MPU6050 SCL, VL53L0X SCL, SSD1306 SCL | Shared bus |
-| LED | 10 | NeoPixel | Onboard WS2812 | Status colours; do not repurpose |
+| LED | 10 | NeoPixel | Onboard WS2812 | Fleet status (boot / WiFi / agent); NEO_RGB; do not repurpose |
 | USB D− | 18 | USB | Type-C data − | Native USB; do not use as GPIO with USB active |
-| USB D+ | 19 | NeoPixel data | Front 8× WS2812 bar DIN (`FRONT_BAR_PIN`) | Same pin as USB D+ — only use if strip wiring matches GPIO19 |
+| USB D+ | 19 | NeoPixel data | Front 8× WS2812 bar DIN (`FRONT_BAR_PIN`) | Fleet WiFi/OTA: USB CDC off → bar active; CDC-on envs: use OTA_usb/bench only |
 | RX (silk) | 20 | LEDC 38 kHz | IR LED anode via 100–150 Ω | UART0 RX; fleet IR `IR_TX_PIN` |
 | TX (silk) | 21 | UART0 TX | USB-serial console | Official silk **TX** = GPIO21; spare GPIO only without console |
 
@@ -66,7 +66,7 @@ Waveshare ESP32-C3 Zero exposes **GPIO0–GPIO10** and **GPIO18–GPIO21** on th
 | 2 | Battery ADC |
 | 4 | Speaker |
 | 8–9 | I2C (MPU, ToF, OLED) |
-| 10 | Onboard status WS2812 |
+| 10 | Onboard status WS2812 (fleet WiFi / agent phases) |
 | 18–19 | USB D− / D+ (19 = front bar DIN in firmware) |
 | 20 | Fleet IR LED TX (`IR_TX_PIN`, silk **RX**) |
 | 21 | UART0 TX / console (silk **TX**) — only free GPIO if you give up USB-serial logging |

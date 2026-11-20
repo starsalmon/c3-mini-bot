@@ -27,7 +27,7 @@
 #define SPEAKER_PIN 4
 #endif
 #ifndef SPEAKER_LEDC_CH
-#define SPEAKER_LEDC_CH 3  // C3 has LEDC ch 0-5 only; servos 0-2, IR TX ch 5
+#define SPEAKER_LEDC_CH 4  // C3: ch0-2=servos (timers 0–1); ch3 free; ch4=speaker; ch5=IR 38 kHz
 #endif
 #ifndef SPEAKER_ENABLED
 #define SPEAKER_ENABLED 1
@@ -51,18 +51,39 @@
 #define FRONT_BAR_PIXEL_ORDER NEO_GRB
 #endif
 
-// FS90R continuous rotation — per-wheel stop pulse (bench-tuned; 1500 often buzzes).
+// FS90R continuous rotation — per-wheel neutral (µs); override per bot in platformio_private.ini.
 #ifndef SERVO_STOP_US_LEFT
-#define SERVO_STOP_US_LEFT 1492
+#define SERVO_STOP_US_LEFT 1500
 #endif
 #ifndef SERVO_STOP_US_RIGHT
-#define SERVO_STOP_US_RIGHT 1508
+#define SERVO_STOP_US_RIGHT 1500
 #endif
 #ifndef SERVO_STOP_US
 #define SERVO_STOP_US ((SERVO_STOP_US_LEFT + SERVO_STOP_US_RIGHT) / 2)
 #endif
+#ifndef SERVO_STOP_DEADBAND_US
+#define SERVO_STOP_DEADBAND_US 40  // snap command within ±this of neutral to exact stop pulse
+#endif
+#ifndef SERVO_PWM_HZ
+#define SERVO_PWM_HZ 50
+#endif
+#ifndef SERVO_PWM_RESOLUTION_BITS
+#define SERVO_PWM_RESOLUTION_BITS 16  // ~0.3 µs/tick at 50 Hz on LEDC
+#endif
 #ifndef SERVO_IDLE_DETACH_MS
-#define SERVO_IDLE_DETACH_MS 200  // detach PWM when stopped — silent idle
+#define SERVO_IDLE_DETACH_MS 300  // detach after out pulse reaches neutral (see drive_servos)
+#endif
+#ifndef SERVO_MAX_OFFSET_US
+#define SERVO_MAX_OFFSET_US 350  // max |speed=1| pulse offset from neutral (quieter gears)
+#endif
+#ifndef SERVO_SLEW_US_PER_10MS
+#define SERVO_SLEW_US_PER_10MS 8  // pulse slew limit (~0.44 s 1500→1850 at 8/10ms)
+#endif
+#ifndef SERVO_OUT_TICK_MS
+#define SERVO_OUT_TICK_MS 10  // fixed-rate pulse update (100 Hz)
+#endif
+#ifndef SERVO_HOLD_STOP_MS
+#define SERVO_HOLD_STOP_MS 8000  // web "Hold stop" — neutral PWM, no detach
 #endif
 #ifndef SERVO_MIN_US
 #define SERVO_MIN_US 1100
@@ -94,6 +115,14 @@
 #endif
 #ifndef PAN_MAX_DEG
 #define PAN_MAX_DEG 150
+#endif
+
+// PS4 manual stick sign on Roby (Roby-only; bridge/Jazz unchanged). 1.0 = packet direction, -1.0 = flip.
+#ifndef BOT_PS4_STEER_SIGN
+#define BOT_PS4_STEER_SIGN (-1.0f)
+#endif
+#ifndef BOT_PS4_PAN_SIGN
+#define BOT_PS4_PAN_SIGN (-1.0f)
 #endif
 
 // micro-ROS fleet: unique per physical bot (bot1, bot2, …). Topics become /bot1/cmd_vel etc.
